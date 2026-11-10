@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "Classroom Feed",
+    "slug": "classroom-feed",
+    "version": "1.0.0",
+    "orientation": "default",
+    "scheme": "classroomfeed",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#FFFFFF",
+    "icon": "./assets/icon.png",
+    "ios": {
+      "bundleIdentifier": "com.solyapps.classroomfeed",
+      "supportsTablet": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "web": {
+      "output": "single",
+      "backgroundColor": "#FFFFFF"
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png"
+        }
+      ]
+    ],
+    "splash": {
+      "backgroundColor": "#FFFFFF",
+      "image": "./assets/icon.png",
+      "resizeMode": "contain"
+    },
+    "owner": "solomonsasson",
+    "extra": {
+      "eas": {
+        "projectId": "703d363b-b587-4b9f-9dbf-3a01ee922f53"
+      }
+    }
+  }
+}
