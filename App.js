@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,6 +7,17 @@ import { C, DEFAULTS, PROBES, courseColor, fmtDue, load, makeApi, runProbe, same
 import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
 import { downloadFile, openFile, saveLocal } from './src/files';
+import { exportLibraryZip, importZipFile } from './src/ziplib';
+import { cancelReminders, scheduleReminders } from './src/remind';
+
+// Lets any card toggle "submitted" without threading a prop through every screen.
+const AppCtx = createContext({ toggleSubmitted: () => {} });
+const dueLabel = (item) => {
+  if (!item.dueAt) return item.due || 'No due date';
+  const d = new Date(item.dueAt);
+  return 'Due ' + d.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+};
+const typeOf = (i) => (i.kind === 'announcement' ? 'Announcements' : i.kind === 'assignment' || i.kind === 'quiz' || i.kind === 'question' || !i.kind ? 'Assignments' : 'Other');
 
 /* ---------- small pieces ---------- */
 const Btn = ({ label, onPress, kind = 'solid', disabled }) => (
@@ -39,12 +50,14 @@ function FileRow({ f, api, saved, onSaved }) {
 
 function ItemCard({ item, api, saved, onSaved, compact }) {
   const [open, setOpen] = useState(!compact);
+  const { toggleSubmitted } = useContext(AppCtx);
   const color = courseColor(item.course);
+  const overdue = item.dueAt && !item.submitted && item.dueAt < Date.now();
   return (
-    <Pressable onPress={() => setOpen((o) => !o)} style={s.card}>
+    <Pressable onPress={() => setOpen((o) => !o)} style={[s.card, item.submitted && { opacity: 0.6 }]}>
       <View style={[s.cardHead, { backgroundColor: color }]}>
         <Text style={s.cardCourse} numberOfLines={1}>{item.course || (item.kind === 'email' ? 'Email' : 'Classroom')}</Text>
-        <Text style={s.cardDue}>{fmtDue(item.due)}</Text>
+        <Text style={[s.cardDue, overdue && { color: '#fff', fontWeight: '700' }]}>{item.submitted ? 'Submitted ✓' : overdue ? 'Overdue · ' + dueLabel(item) : dueLabel(item)}</Text>
       </View>
       <View style={{ padding: 14 }}>
         <Text style={s.cardTitle}>{item.title}</Text>
@@ -52,6 +65,7 @@ function ItemCard({ item, api, saved, onSaved, compact }) {
         {open && (item.files || []).map((f) => <FileRow key={f.id} f={f} api={api} saved={saved} onSaved={onSaved} />)}
         {!open && (item.files || []).length > 0 && <Text style={s.sub}>{item.files.length} attachment{item.files.length > 1 ? 's' : ''} · tap to open</Text>}
         {open && !!item.url && <Text style={[s.sub, { color: C.blue, marginTop: 8 }]} onPress={() => Linking.openURL(item.url)}>Open in Classroom</Text>}
+        {open && <View style={{ marginTop: 10, alignItems: 'flex-start' }}><Btn kind="ghost" label={item.submitted ? 'Mark not submitted' : 'Mark as submitted'} onPress={() => toggleSubmitted(item)} /></View>}
       </View>
     </Pressable>
   );
@@ -59,7 +73,7 @@ function ItemCard({ item, api, saved, onSaved, compact }) {
 
 /* ---------- screens ---------- */
 /** Library: Classroom-style class tiles; tap one to see its assignments and files. */
-function Library({ items, api, saved, onSaved, onRefresh, refreshing, status }) {
+function Library({ items, api, saved, onSaved, onRefresh, refreshing, status, onShare }) {
   const [course, setCourse] = useState(null);
   const sorted = useMemo(() => [...items].sort((a, b) => (b.posted_at || b.created_at) - (a.posted_at || a.created_at)), [items]);
   const courses = useMemo(() => {
@@ -68,19 +82,29 @@ function Library({ items, api, saved, onSaved, onRefresh, refreshing, status }) 
     return [...m.entries()].map(([name, count]) => ({ name, count }));
   }, [sorted]);
   if (course) {
-    const list = sorted.filter((i) => (i.course || 'Other') === course);
+    const inClass = sorted.filter((i) => (i.course || 'Other') === course);
+    // Sections: Assignments (soonest due first, submitted last), Announcements, Other.
+    const rows = [];
+    for (const sec of ['Assignments', 'Announcements', 'Other']) {
+      const list = inClass.filter((i) => typeOf(i) === sec).sort((a, b) => (a.submitted ? 1 : 0) - (b.submitted ? 1 : 0) || (a.dueAt || 9e15) - (b.dueAt || 9e15));
+      if (list.length) rows.push({ id: 'h-' + sec, header: sec, n: list.length }, ...list);
+    }
     return (
       <FlatList
-        data={list}
+        key="class-view"
+        data={rows}
         keyExtractor={(i) => i.id}
         contentContainerStyle={{ padding: 14, paddingBottom: 30 }}
         ListHeaderComponent={<View style={{ marginBottom: 12 }}><Btn kind="ghost" label="‹ All classes" onPress={() => setCourse(null)} /><Text style={s.h2}>{course}</Text></View>}
-        renderItem={({ item }) => <ItemCard item={item} api={api} saved={saved} onSaved={onSaved} compact />}
+        renderItem={({ item }) => item.header
+          ? <Text style={s.section}>{item.header} · {item.n}</Text>
+          : <ItemCard item={item} api={api} saved={saved} onSaved={onSaved} compact />}
       />
     );
   }
   return (
     <FlatList
+      key="class-tiles"
       data={courses}
       keyExtractor={(c) => c.name}
       numColumns={2}
@@ -88,8 +112,8 @@ function Library({ items, api, saved, onSaved, onRefresh, refreshing, status }) 
       contentContainerStyle={{ padding: 14, paddingBottom: 30, gap: 12 }}
       refreshing={refreshing}
       onRefresh={onRefresh}
-      ListHeaderComponent={<Text style={[s.sub, { marginBottom: 6 }]}>{status}</Text>}
-      ListEmptyComponent={<Text style={[s.sub, { textAlign: 'center', marginTop: 60 }]}>Nothing yet. Pull down to sync, or use Import to add a message.</Text>}
+      ListHeaderComponent={<View style={{ marginBottom: 6 }}><Text style={s.sub}>{status}</Text>{items.length > 0 && <View style={{ alignItems: 'flex-start', marginTop: 4 }}><Btn kind="ghost" label="Send library to another device" onPress={onShare} /></View>}</View>}
+      ListEmptyComponent={<Text style={[s.sub, { textAlign: 'center', marginTop: 60 }]}>Nothing yet. Open a Homework zip from Messages (Share → Classroom Feed), or use the Import tab.</Text>}
       renderItem={({ item: c }) => (
         <Pressable onPress={() => setCourse(c.name)} style={[s.tile, { backgroundColor: courseColor(c.name) }]}>
           <Text style={s.tileName} numberOfLines={3}>{c.name}</Text>
@@ -112,7 +136,7 @@ export function parseMessage(text) {
   return { id: 'msg-' + h, kind: 'assignment', course: course || 'Other', title: title || 'Message', due, body, url: '', created_at: Date.now(), posted_at: Date.now(), files: [] };
 }
 
-function Importer({ items, onAdd, onAttach }) {
+function Importer({ items, onAdd, onAttach, onZip }) {
   const [text, setText] = useState('');
   const [note, setNote] = useState('');
   const latest = items[0];
@@ -131,10 +155,16 @@ function Importer({ items, onAdd, onAttach }) {
   };
   return (
     <ScrollView contentContainerStyle={{ padding: 14 }} keyboardShouldPersistTaps="handled">
-      <Text style={s.h2}>Import from Messages</Text>
-      <Text style={s.sub}>iPadOS won’t let an app read Messages, so it’s two taps: copy the message text, then tap the button. Files: save them from Messages to Files first, then attach.</Text>
+      <Text style={s.h2}>Import</Text>
+      <Text style={s.sub}>Easiest: in Messages, touch and hold the Homework zip, tap Share, then pick Classroom Feed. It sorts everything into classes for you. Or choose the zip from Files here.</Text>
       <View style={{ height: 14 }} />
-      <Btn label="1. Paste copied message" onPress={paste} />
+      <Btn label="Open a Homework zip…" onPress={async () => {
+        try { const r = await DocumentPicker.getDocumentAsync({ type: ['application/zip', 'public.zip-archive', '*/*'], copyToCacheDirectory: true }); if (!r.canceled) setNote(await onZip(r.assets[0].uri)); }
+        catch { setNote('Could not open that zip.'); }
+      }} />
+      <View style={{ height: 22 }} />
+      <Text style={s.label}>Just a text message?</Text>
+      <Btn kind="ghost" label="Paste copied message" onPress={paste} />
       <View style={{ height: 10 }} />
       <Btn kind="ghost" label={latest ? `2. Attach file(s) to “${latest.title.slice(0, 28)}”` : '2. Attach file(s)'} onPress={pick} disabled={!latest} />
       {!!note && <View style={s.verdict}><Text style={{ color: C.text }}>{note}</Text></View>}
@@ -266,12 +296,51 @@ function Main() {
     setCfgState(await load('cfg', DEFAULTS)); setItems(await load('items', [])); setSaved(await load('saved', {}));
   })(); }, []);
 
+  // Merging never throws away what's already on the device: local files, due time and "submitted" survive a sync.
   const merge = useCallback((incoming) => setItems((cur) => {
     const map = new Map(cur.map((i) => [i.id, i]));
-    incoming.forEach((i) => map.set(i.id, i));
-    const next = [...map.values()].sort((a, b) => b.created_at - a.created_at);
+    incoming.forEach((i) => {
+      const old = map.get(i.id);
+      if (!old) { map.set(i.id, i); return; }
+      const localFiles = (old.files || []).filter((f) => f.local);
+      const names = new Set(localFiles.map((f) => f.name));
+      const files = [...localFiles, ...(i.files || []).filter((f) => !names.has(f.name))];
+      map.set(i.id, { ...old, ...i, files, dueAt: i.dueAt || old.dueAt || 0, submitted: old.submitted || false });
+    });
+    const next = [...map.values()].sort((a, b) => (b.posted_at || b.created_at) - (a.posted_at || a.created_at));
     save('items', next); return next;
   }), []);
+
+  const toggleSubmitted = useCallback((item) => {
+    const updated = { ...item, submitted: !item.submitted };
+    setItems((cur) => { const next = cur.map((i) => (i.id === item.id ? updated : i)); save('items', next); return next; });
+    if (updated.submitted) cancelReminders(updated); else scheduleReminders(updated);
+  }, []);
+
+  // A zip arriving from Messages' share sheet (or the picker): file it into classes and schedule reminders.
+  const handleZip = useCallback(async (uri) => {
+    const imported = await importZipFile(uri);
+    merge(imported);
+    imported.forEach((it) => scheduleReminders(it));
+    setTab('library');
+    const msg = `Imported ${imported.length} assignment${imported.length === 1 ? '' : 's'} into your classes.`;
+    setStatus(msg);
+    return msg;
+  }, [merge]);
+
+  useEffect(() => {
+    const isZip = (u) => !!u && /\.zip(\?|$)/i.test(u);
+    Linking.getInitialURL().then((u) => { if (isZip(u)) handleZip(u).catch(() => setStatus('Could not read that zip.')); }).catch(() => {});
+    const sub = Linking.addEventListener('url', (e) => { if (isZip(e.url)) handleZip(e.url).catch(() => setStatus('Could not read that zip.')); });
+    return () => sub.remove();
+  }, [handleZip]);
+
+  const shareLibrary = useCallback(async () => {
+    try {
+      const path = await exportLibraryZip(items);
+      await openFile(path); // AirDrop / Messages / Save to Files — the other device opens it the same way
+    } catch { setStatus('Sharing needs the installed app.'); }
+  }, [items]);
   const onSaved = useCallback((id, path) => setSaved((x) => { const n = { ...x, [id]: path }; save('saved', n); return n; }), []);
   const setCfg = (c) => { setCfgState(c); save('cfg', c); };
   // Attach picked files to the newest item (copied into the app so they open offline).
@@ -320,11 +389,12 @@ function Main() {
   }, [merge]);
 
   return (
+    <AppCtx.Provider value={{ toggleSubmitted }}>
     <View style={{ flex: 1, backgroundColor: C.bg, paddingTop: insets.top }}>
       <View style={s.top}><Text style={s.topTitle}>Classroom Feed</Text></View>
       <View style={{ flex: 1 }}>
-        {tab === 'library' && <Library items={items} api={api} saved={saved} onSaved={onSaved} onRefresh={sync} refreshing={refreshing} status={status} />}
-        {tab === 'import' && <Importer items={items} onAdd={(it) => { merge([it]); }} onAttach={onAttach} />}
+        {tab === 'library' && <Library items={items} api={api} saved={saved} onSaved={onSaved} onRefresh={sync} refreshing={refreshing} status={status} onShare={shareLibrary} />}
+        {tab === 'import' && <Importer items={items} onAdd={(it) => { merge([it]); }} onAttach={onAttach} onZip={handleZip} />}
         {tab === 'chat' && <Chat items={items} api={api} saved={saved} onSaved={onSaved} onNewItems={merge} />}
         {tab === 'net' && <Network cfg={cfg} />}
         {tab === 'settings' && <Settings cfg={cfg} setCfg={setCfg} />}
@@ -337,6 +407,7 @@ function Main() {
         ))}
       </View>
     </View>
+    </AppCtx.Provider>
   );
 }
 
@@ -375,6 +446,7 @@ const s = StyleSheet.create({
   probe: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: C.line, padding: 12, marginBottom: 8 },
   dot: { width: 10, height: 10, borderRadius: 5 },
   verdict: { marginTop: 8, padding: 14, borderRadius: 10, backgroundColor: '#e8f0fe' },
+  section: { fontSize: 13, fontWeight: '700', color: C.sub, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 10, marginBottom: 8 },
   tile: { flex: 1, minHeight: 120, borderRadius: 12, padding: 14, justifyContent: 'space-between' },
   tileName: { color: '#fff', fontSize: 16, fontWeight: '600' },
   tileCount: { color: '#ffffffcc', fontSize: 12 },

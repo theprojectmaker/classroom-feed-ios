@@ -12,7 +12,20 @@
       "bundleIdentifier": "com.solyapps.classroomfeed",
       "supportsTablet": true,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIFileSharingEnabled": true,
+        "LSSupportsOpeningDocumentsInPlace": false,
+        "CFBundleDocumentTypes": [
+          {
+            "CFBundleTypeName": "Homework zip",
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "public.zip-archive",
+              "com.pkware.zip-archive"
+            ]
+          }
+        ]
       }
     },
     "web": {

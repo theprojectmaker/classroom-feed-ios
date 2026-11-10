@@ -1,5 +1,5 @@
 {
   "cli": { "version": ">= 16.0.0", "appVersionSource": "remote" },
-  "build": { "production": { "autoIncrement": true, "channel": "production" } },
+  "build": { "production": { "autoIncrement": true } },
   "submit": { "production": { "ios": { "ascAppId": "REPLACE_WITH_ASC_APP_ID" } } }
 }
