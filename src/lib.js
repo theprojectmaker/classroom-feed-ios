@@ -5,7 +5,7 @@ export const C = {
   text: '#202124', sub: '#5f6368', green: '#1e8e3e', red: '#d93025', amber: '#f9ab00',
 };
 // Classroom-style course colours, picked by a stable hash of the course name.
-const COURSE_COLORS = ['#1e8e3e', '#1a73e8', '#e37400', '#a142f4', '#d93025', '#129eaf', '#e52592', '#5f6368'];
+const COURSE_COLORS = ['#1e8e3e', '#1a73e8', '#e37400', '#a142f4', '#d93025', '#129eaf', '#e52592', '#795548'];
 export const courseColor = (name = '') => {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;

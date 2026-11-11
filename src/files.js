@@ -24,6 +24,16 @@ export async function saveLocal(uri, name) {
   return dest;
 }
 
+export async function fileSize(path) {
+  if (Platform.OS === 'web') return 0;
+  try { const info = await require('expo-file-system/legacy').getInfoAsync(path); return info.exists ? info.size || 0 : 0; } catch { return 0; }
+}
+
+export async function removeLocal(path) {
+  if (Platform.OS === 'web') return;
+  try { await require('expo-file-system/legacy').deleteAsync(path, { idempotent: true }); } catch {}
+}
+
 export async function openFile(path) {
   if (Platform.OS === 'web') { Linking.openURL(path); return; }
   const Sharing = require('expo-sharing');

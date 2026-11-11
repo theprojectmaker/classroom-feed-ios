@@ -52,7 +52,8 @@
         {
           "icon": "./assets/icon.png"
         }
-      ]
+      ],
+      "expo-font"
     ],
     "splash": {
       "backgroundColor": "#FFFFFF",
