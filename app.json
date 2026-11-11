@@ -24,6 +24,20 @@
               "public.zip-archive",
               "com.pkware.zip-archive"
             ]
+          },
+          {
+            "CFBundleTypeName": "Finished work",
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "com.adobe.pdf",
+              "public.image",
+              "public.plain-text",
+              "public.rtf",
+              "org.openxmlformats.wordprocessingml.document",
+              "com.microsoft.word.doc",
+              "public.data"
+            ]
           }
         ]
       }

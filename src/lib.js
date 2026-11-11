@@ -12,7 +12,7 @@ export const courseColor = (name = '') => {
   return COURSE_COLORS[h % COURSE_COLORS.length];
 };
 
-export const DEFAULTS = { server: 'https://classroom-bot.greatneck.workers.dev', key: process.env.EXPO_PUBLIC_API_KEY || '' };
+export const DEFAULTS = { server: 'https://classroom-bot.greatneck.workers.dev', token: '', name: '' };
 
 export async function load(key, fallback) {
   try {
@@ -34,18 +34,29 @@ export async function timedFetch(url, opts = {}, ms = 8000) {
 
 export function makeApi(cfg) {
   const base = cfg.server.replace(/\/+$/, '');
-  const headers = { 'Content-Type': 'application/json', 'X-Api-Key': cfg.key };
+  const auth = cfg.token ? { Authorization: 'Bearer ' + cfg.token } : {};
   const call = async (path, opts = {}, ms = 20000) => {
-    const res = await timedFetch(base + path, { ...opts, headers: { ...headers, ...(opts.headers || {}) } }, ms);
+    const res = await timedFetch(base + path, { ...opts, headers: { 'Content-Type': 'application/json', ...auth, ...(opts.headers || {}) } }, ms);
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
+    if (!res.ok || data.ok === false) { const e = new Error(data.error || `HTTP ${res.status}`); e.status = res.status; throw e; }
     return data;
   };
   return {
+    register: (name, password, invite) => call('/acct/register', { method: 'POST', body: JSON.stringify({ name, password, invite }) }),
+    login: (name, password) => call('/acct/login', { method: 'POST', body: JSON.stringify({ name, password }) }),
     items: (since = 0) => call(`/api/items?since=${since}`),
-    ask: (text) => call('/api/ask', { method: 'POST', body: JSON.stringify({ text }) }, 60000),
+    setSubmitted: (id, submitted) => call('/api/state', { method: 'POST', body: JSON.stringify({ id, submitted }) }),
     registerPush: (token) => call('/api/register-push', { method: 'POST', body: JSON.stringify({ token }) }),
-    fileUrl: (id) => `${base}/api/file/${id}?k=${encodeURIComponent(cfg.key)}`,
+    /** Uploads the finished file you made for an assignment; every signed-in device then gets it. */
+    upload: async (itemId, name, uri, mime) => {
+      const blob = await (await fetch(uri)).blob();
+      const res = await timedFetch(`${base}/api/upload?item=${encodeURIComponent(itemId)}&name=${encodeURIComponent(name)}`,
+        { method: 'POST', body: blob, headers: { ...auth, 'Content-Type': mime || 'application/octet-stream' } }, 120000);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
+      return data;
+    },
+    fileUrl: (id) => `${base}/api/file/${id}?t=${encodeURIComponent(cfg.token || '')}`,
   };
 }
 

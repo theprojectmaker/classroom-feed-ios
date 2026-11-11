@@ -1,23 +1,22 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, AppState, FlatList, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Notifications from 'expo-notifications';
-import { C, DEFAULTS, PROBES, courseColor, fmtDue, load, makeApi, runProbe, sameDay, save } from './src/lib';
-import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
+import { WebView } from 'react-native-webview';
+import { C, DEFAULTS, PROBES, courseColor, load, makeApi, runProbe, save } from './src/lib';
 import { downloadFile, openFile, saveLocal } from './src/files';
 import { exportLibraryZip, importZipFile } from './src/ziplib';
 import { cancelReminders, scheduleReminders } from './src/remind';
 
-// Lets any card toggle "submitted" without threading a prop through every screen.
-const AppCtx = createContext({ toggleSubmitted: () => {} });
+const AppCtx = createContext({});
+
 const dueLabel = (item) => {
   if (!item.dueAt) return item.due || 'No due date';
-  const d = new Date(item.dueAt);
-  return 'Due ' + d.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return 'Due ' + new Date(item.dueAt).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 };
-const typeOf = (i) => (i.kind === 'announcement' ? 'Announcements' : i.kind === 'assignment' || i.kind === 'quiz' || i.kind === 'question' || !i.kind ? 'Assignments' : 'Other');
+const typeOf = (i) => (i.kind === 'announcement' ? 'Announcements' : i.kind === 'material' || i.kind === 'email' ? 'Other' : 'Assignments');
 
 /* ---------- small pieces ---------- */
 const Btn = ({ label, onPress, kind = 'solid', disabled }) => (
@@ -26,203 +25,139 @@ const Btn = ({ label, onPress, kind = 'solid', disabled }) => (
   </Pressable>
 );
 
-function FileRow({ f, api, saved, onSaved }) {
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
+function FileRow({ f }) {
+  const { saved, openPreview } = useContext(AppCtx);
   const path = f.local || saved[f.id];
-  const get = async () => {
-    setBusy(true); setErr('');
-    try { onSaved(f.id, await downloadFile(api.fileUrl(f.id), f.name)); }
-    catch { setErr('Download failed — will work on a better connection'); }
-    setBusy(false);
-  };
+  const mine = f.origin === 'upload';
   return (
-    <View style={s.fileRow}>
-      <View style={s.fileIcon}><Text style={{ color: '#fff', fontWeight: '700', fontSize: 11 }}>{(f.name.split('.').pop() || 'file').slice(0, 4).toUpperCase()}</Text></View>
+    <Pressable onPress={() => openPreview(f)} style={s.fileRow}>
+      <View style={[s.fileIcon, mine && { backgroundColor: C.green }]}><Text style={{ color: '#fff', fontWeight: '700', fontSize: 11 }}>{(f.name.split('.').pop() || 'file').slice(0, 4).toUpperCase()}</Text></View>
       <View style={{ flex: 1 }}>
         <Text style={s.fileName} numberOfLines={1}>{f.name}</Text>
-        <Text style={s.sub}>{err || `${Math.max(1, Math.round(f.size / 1024))} KB${path ? ' · saved offline' : ''}`}</Text>
+        <Text style={s.sub}>{mine ? 'Your work' : 'From Classroom'} · {Math.max(1, Math.round((f.size || 0) / 1024))} KB{f.pending ? ' · waiting to upload' : path ? ' · saved offline' : ''}</Text>
       </View>
-      {busy ? <ActivityIndicator color={C.blue} /> : path ? <Btn kind="ghost" label="Open" onPress={() => openFile(path)} /> : f.local === undefined && f.id.indexOf('local-') !== 0 ? <Btn kind="ghost" label="Save" onPress={get} /> : null}
-    </View>
+      <Text style={{ color: C.blue, fontSize: 14, fontWeight: '600' }}>Preview</Text>
+    </Pressable>
   );
 }
 
-function ItemCard({ item, api, saved, onSaved, compact }) {
+function ItemCard({ item, compact }) {
   const [open, setOpen] = useState(!compact);
-  const { toggleSubmitted } = useContext(AppCtx);
+  const { toggleSubmitted, pickAndUpload } = useContext(AppCtx);
   const color = courseColor(item.course);
   const overdue = item.dueAt && !item.submitted && item.dueAt < Date.now();
+  const files = item.files || [];
+  const theirs = files.filter((f) => f.origin !== 'upload');
+  const mine = files.filter((f) => f.origin === 'upload');
+  const isWork = typeOf(item) === 'Assignments';
   return (
     <Pressable onPress={() => setOpen((o) => !o)} style={[s.card, item.submitted && { opacity: 0.6 }]}>
       <View style={[s.cardHead, { backgroundColor: color }]}>
-        <Text style={s.cardCourse} numberOfLines={1}>{item.course || (item.kind === 'email' ? 'Email' : 'Classroom')}</Text>
+        <Text style={s.cardCourse} numberOfLines={1}>{item.course || 'Classroom'}</Text>
         <Text style={[s.cardDue, overdue && { color: '#fff', fontWeight: '700' }]}>{item.submitted ? 'Submitted ✓' : overdue ? 'Overdue · ' + dueLabel(item) : dueLabel(item)}</Text>
       </View>
       <View style={{ padding: 14 }}>
         <Text style={s.cardTitle}>{item.title}</Text>
         {open && !!item.body && <Text style={s.cardBody}>{item.body}</Text>}
-        {open && (item.files || []).map((f) => <FileRow key={f.id} f={f} api={api} saved={saved} onSaved={onSaved} />)}
-        {!open && (item.files || []).length > 0 && <Text style={s.sub}>{item.files.length} attachment{item.files.length > 1 ? 's' : ''} · tap to open</Text>}
-        {open && !!item.url && <Text style={[s.sub, { color: C.blue, marginTop: 8 }]} onPress={() => Linking.openURL(item.url)}>Open in Classroom</Text>}
-        {open && <View style={{ marginTop: 10, alignItems: 'flex-start' }}><Btn kind="ghost" label={item.submitted ? 'Mark not submitted' : 'Mark as submitted'} onPress={() => toggleSubmitted(item)} /></View>}
+        {open && theirs.map((f) => <FileRow key={f.id} f={f} />)}
+        {open && mine.length > 0 && <Text style={[s.section, { marginTop: 14 }]}>Your work</Text>}
+        {open && mine.map((f) => <FileRow key={f.id} f={f} />)}
+        {!open && files.length > 0 && <Text style={s.sub}>{files.length} file{files.length > 1 ? 's' : ''} · tap to open</Text>}
+        {open && !!item.url && <Text style={[s.sub, { color: C.blue, marginTop: 10 }]} onPress={() => Linking.openURL(item.url)}>Open in Classroom to submit</Text>}
+        {open && (
+          <View style={{ marginTop: 8, flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
+            {isWork && <Btn kind="ghost" label="Upload my work" onPress={() => pickAndUpload(item)} />}
+            {isWork && <Btn kind="ghost" label={item.submitted ? 'Mark not submitted' : 'Mark as submitted'} onPress={() => toggleSubmitted(item)} />}
+          </View>
+        )}
       </View>
     </Pressable>
   );
 }
 
+/** Full-screen document preview: PDFs/images/docs render in a web view; the file is only saved if you tap Save. */
+function Preview({ file, onClose }) {
+  const { api, saved, onSaved } = useContext(AppCtx);
+  const [busy, setBusy] = useState(false);
+  const local = file.local || saved[file.id];
+  const uri = local || api.fileUrl(file.id);
+  const save = async () => { setBusy(true); try { onSaved(file.id, await downloadFile(uri, file.name)); } catch {} setBusy(false); };
+  return (
+    <Modal visible animationType="slide" onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: '#fff' }}>
+        <View style={s.previewBar}>
+          <Btn kind="ghost" label="Close" onPress={onClose} />
+          <Text style={[s.fileName, { flex: 1, textAlign: 'center' }]} numberOfLines={1}>{file.name}</Text>
+          {busy ? <ActivityIndicator color={C.blue} /> : local ? <Btn kind="ghost" label="Share" onPress={() => openFile(local)} /> : <Btn kind="ghost" label="Save" onPress={save} />}
+        </View>
+        {Platform.OS === 'web'
+          ? <View style={{ padding: 20 }}><Text style={s.sub}>Previews open inside the installed app.</Text><Text style={{ color: C.blue, marginTop: 8 }} onPress={() => Linking.openURL(uri)}>Open in browser</Text></View>
+          : <WebView source={{ uri }} originWhitelist={['*']} allowFileAccess allowingReadAccessToURL={local || undefined} startInLoadingState
+              renderLoading={() => <ActivityIndicator style={{ marginTop: 40 }} color={C.blue} />}
+              renderError={() => <View style={{ padding: 24 }}><Text style={s.cardTitle}>Can’t preview right now</Text><Text style={[s.sub, { marginTop: 6 }]}>No connection. Save it when you’re online and it opens offline.</Text></View>} />}
+      </View>
+    </Modal>
+  );
+}
+
+/** A file arrived from another app's share sheet (Quill, Files…): pick which assignment it is the finished work for. */
+function AttachPicker({ incoming, items, onPick, onClose }) {
+  const list = items.filter((i) => typeOf(i) === 'Assignments' && !i.submitted).sort((a, b) => (a.dueAt || 9e15) - (b.dueAt || 9e15));
+  return (
+    <Modal visible animationType="slide" onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: C.bg, paddingTop: 50 }}>
+        <View style={{ paddingHorizontal: 16 }}>
+          <Text style={s.h2}>Which assignment is this for?</Text>
+          <Text style={s.sub}>{incoming.name} · it uploads to your account and shows up on all your devices.</Text>
+        </View>
+        <FlatList data={list} keyExtractor={(i) => i.id} contentContainerStyle={{ padding: 14 }}
+          ListEmptyComponent={<Text style={[s.sub, { textAlign: 'center', marginTop: 40 }]}>No open assignments to attach to yet.</Text>}
+          renderItem={({ item }) => (
+            <Pressable onPress={() => onPick(item)} style={[s.card, { padding: 14 }]}>
+              <Text style={s.sub}>{item.course}</Text>
+              <Text style={s.cardTitle}>{item.title}</Text>
+              <Text style={s.sub}>{dueLabel(item)}</Text>
+            </Pressable>
+          )} />
+        <View style={{ padding: 14 }}><Btn kind="ghost" label="Cancel" onPress={onClose} /></View>
+      </View>
+    </Modal>
+  );
+}
+
 /* ---------- screens ---------- */
-/** Library: Classroom-style class tiles; tap one to see its assignments and files. */
-function Library({ items, api, saved, onSaved, onRefresh, refreshing, status, onShare }) {
+function Library({ items, onRefresh, refreshing, status, onShare }) {
   const [course, setCourse] = useState(null);
   const sorted = useMemo(() => [...items].sort((a, b) => (b.posted_at || b.created_at) - (a.posted_at || a.created_at)), [items]);
   const courses = useMemo(() => {
     const m = new Map();
-    sorted.forEach((i) => { const k = i.course || 'Other'; m.set(k, (m.get(k) || 0) + 1); });
-    return [...m.entries()].map(([name, count]) => ({ name, count }));
+    sorted.forEach((i) => { const k = i.course || 'Other'; const e = m.get(k) || { name: k, count: 0, due: 0 }; e.count++; if (!i.submitted && i.dueAt > Date.now() && typeOf(i) === 'Assignments') e.due++; m.set(k, e); });
+    return [...m.values()];
   }, [sorted]);
   if (course) {
     const inClass = sorted.filter((i) => (i.course || 'Other') === course);
-    // Sections: Assignments (soonest due first, submitted last), Announcements, Other.
     const rows = [];
     for (const sec of ['Assignments', 'Announcements', 'Other']) {
       const list = inClass.filter((i) => typeOf(i) === sec).sort((a, b) => (a.submitted ? 1 : 0) - (b.submitted ? 1 : 0) || (a.dueAt || 9e15) - (b.dueAt || 9e15));
       if (list.length) rows.push({ id: 'h-' + sec, header: sec, n: list.length }, ...list);
     }
     return (
-      <FlatList
-        key="class-view"
-        data={rows}
-        keyExtractor={(i) => i.id}
-        contentContainerStyle={{ padding: 14, paddingBottom: 30 }}
+      <FlatList key="class-view" data={rows} keyExtractor={(i) => i.id} contentContainerStyle={{ padding: 14, paddingBottom: 30 }}
         ListHeaderComponent={<View style={{ marginBottom: 12 }}><Btn kind="ghost" label="‹ All classes" onPress={() => setCourse(null)} /><Text style={s.h2}>{course}</Text></View>}
-        renderItem={({ item }) => item.header
-          ? <Text style={s.section}>{item.header} · {item.n}</Text>
-          : <ItemCard item={item} api={api} saved={saved} onSaved={onSaved} compact />}
-      />
+        renderItem={({ item }) => (item.header ? <Text style={s.section}>{item.header} · {item.n}</Text> : <ItemCard item={item} compact />)} />
     );
   }
   return (
-    <FlatList
-      key="class-tiles"
-      data={courses}
-      keyExtractor={(c) => c.name}
-      numColumns={2}
-      columnWrapperStyle={{ gap: 12 }}
-      contentContainerStyle={{ padding: 14, paddingBottom: 30, gap: 12 }}
-      refreshing={refreshing}
-      onRefresh={onRefresh}
+    <FlatList key="class-tiles" data={courses} keyExtractor={(c) => c.name} numColumns={2} columnWrapperStyle={{ gap: 12 }}
+      contentContainerStyle={{ padding: 14, paddingBottom: 30, gap: 12 }} refreshing={refreshing} onRefresh={onRefresh}
       ListHeaderComponent={<View style={{ marginBottom: 6 }}><Text style={s.sub}>{status}</Text>{items.length > 0 && <View style={{ alignItems: 'flex-start', marginTop: 4 }}><Btn kind="ghost" label="Send library to another device" onPress={onShare} /></View>}</View>}
-      ListEmptyComponent={<Text style={[s.sub, { textAlign: 'center', marginTop: 60 }]}>Nothing yet. Open a Homework zip from Messages (Share → Classroom Feed), or use the Import tab.</Text>}
+      ListEmptyComponent={<Text style={[s.sub, { textAlign: 'center', marginTop: 60 }]}>Nothing yet. Sign in under Settings and it syncs by itself, or open a Homework zip from Messages (Share → Classroom Feed).</Text>}
       renderItem={({ item: c }) => (
         <Pressable onPress={() => setCourse(c.name)} style={[s.tile, { backgroundColor: courseColor(c.name) }]}>
           <Text style={s.tileName} numberOfLines={3}>{c.name}</Text>
-          <Text style={s.tileCount}>{c.count} item{c.count > 1 ? 's' : ''}</Text>
+          <Text style={s.tileCount}>{c.count} item{c.count > 1 ? 's' : ''}{c.due ? ` · ${c.due} due` : ''}</Text>
         </Pressable>
-      )}
-    />
-  );
-}
-
-/** Turns the plain text the bot sends ("Course / Title / Due… / body") back into a library item. */
-export function parseMessage(text) {
-  const lines = text.replace(/\r/g, '').split('\n');
-  const course = (lines[0] || '').trim();
-  const title = (lines[1] || '').trim();
-  const hasDue = /^(Due|No due)/i.test((lines[2] || '').trim());
-  const due = hasDue ? lines[2].trim() : '';
-  const body = lines.slice(hasDue ? 3 : 2).join('\n').trim();
-  let h = 0; for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) >>> 0;
-  return { id: 'msg-' + h, kind: 'assignment', course: course || 'Other', title: title || 'Message', due, body, url: '', created_at: Date.now(), posted_at: Date.now(), files: [] };
-}
-
-function Importer({ items, onAdd, onAttach, onZip }) {
-  const [text, setText] = useState('');
-  const [note, setNote] = useState('');
-  const latest = items[0];
-  const add = (t) => {
-    if (!t.trim()) { setNote('Nothing to import — copy the message first.'); return; }
-    const it = parseMessage(t); onAdd(it); setText(''); setNote(`Added “${it.title}” to ${it.course}.`);
-  };
-  const paste = async () => { try { add(await Clipboard.getStringAsync()); } catch { setNote('Could not read the clipboard.'); } };
-  const pick = async () => {
-    try {
-      const r = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true });
-      if (r.canceled) return;
-      await onAttach(r.assets);
-      setNote(`Attached ${r.assets.length} file${r.assets.length > 1 ? 's' : ''}.`);
-    } catch { setNote('Could not attach the file.'); }
-  };
-  return (
-    <ScrollView contentContainerStyle={{ padding: 14 }} keyboardShouldPersistTaps="handled">
-      <Text style={s.h2}>Import</Text>
-      <Text style={s.sub}>Easiest: in Messages, touch and hold the Homework zip, tap Share, then pick Classroom Feed. It sorts everything into classes for you. Or choose the zip from Files here.</Text>
-      <View style={{ height: 14 }} />
-      <Btn label="Open a Homework zip…" onPress={async () => {
-        try { const r = await DocumentPicker.getDocumentAsync({ type: ['application/zip', 'public.zip-archive', '*/*'], copyToCacheDirectory: true }); if (!r.canceled) setNote(await onZip(r.assets[0].uri)); }
-        catch { setNote('Could not open that zip.'); }
-      }} />
-      <View style={{ height: 22 }} />
-      <Text style={s.label}>Just a text message?</Text>
-      <Btn kind="ghost" label="Paste copied message" onPress={paste} />
-      <View style={{ height: 10 }} />
-      <Btn kind="ghost" label={latest ? `2. Attach file(s) to “${latest.title.slice(0, 28)}”` : '2. Attach file(s)'} onPress={pick} disabled={!latest} />
-      {!!note && <View style={s.verdict}><Text style={{ color: C.text }}>{note}</Text></View>}
-      <Text style={s.label}>Or paste text here</Text>
-      <TextInput value={text} onChangeText={setText} multiline placeholder="Course\nTitle\nDue…\n\nInstructions" placeholderTextColor={C.sub} style={[s.field, { minHeight: 120, textAlignVertical: 'top' }]} />
-      <View style={{ height: 10 }} />
-      <Btn label="Add to library" onPress={() => add(text)} disabled={!text.trim()} />
-    </ScrollView>
-  );
-}
-
-function Chat({ items, api, saved, onSaved, onNewItems }) {
-  const [msgs, setMsgs] = useState([{ id: 'hi', from: 'bot', text: 'Hi! Ask me for your assignments, e.g. “send me all assignments from today”.' }]);
-  const [text, setText] = useState('');
-  const [busy, setBusy] = useState(false);
-  const ref = useRef(null);
-  const push = (m) => setMsgs((x) => [...x, { id: String(Date.now() + Math.random()), ...m }]);
-
-  const send = async () => {
-    const t = text.trim();
-    if (!t || busy) return;
-    setText(''); push({ from: 'me', text: t }); setBusy(true);
-    try {
-      const r = await api.ask(t);
-      onNewItems(r.items || []);
-      push({ from: 'bot', text: r.reply || `Found ${(r.items || []).length}.`, items: r.items || [] });
-    } catch {
-      // Offline / blocked network: answer from what is already saved on the phone.
-      const today = /today/i.test(t);
-      const local = today ? items.filter((i) => sameDay(i.created_at)) : items.slice(0, 10);
-      push({ from: 'bot', text: `Can’t reach the bot right now, so here is what’s saved on your phone${today ? ' from today' : ''} (${local.length}).`, items: local });
-    }
-    setBusy(false);
-  };
-
-  return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={90}>
-      <FlatList
-        ref={ref}
-        data={msgs}
-        keyExtractor={(m) => m.id}
-        contentContainerStyle={{ padding: 14 }}
-        onContentSizeChange={() => ref.current?.scrollToEnd({ animated: true })}
-        renderItem={({ item: m }) => (
-          <View style={{ marginBottom: 10, alignItems: m.from === 'me' ? 'flex-end' : 'flex-start' }}>
-            <View style={[s.bubble, m.from === 'me' ? s.bubbleMe : s.bubbleBot]}>
-              <Text style={{ color: m.from === 'me' ? '#fff' : C.text, fontSize: 15 }}>{m.text}</Text>
-            </View>
-            {(m.items || []).map((i) => <View key={i.id} style={{ width: '100%', marginTop: 8 }}><ItemCard item={i} api={api} saved={saved} onSaved={onSaved} compact /></View>)}
-          </View>
-        )}
-        ListFooterComponent={busy ? <Text style={s.sub}>Searching Classroom…</Text> : null}
-      />
-      <View style={s.inputBar}>
-        <TextInput value={text} onChangeText={setText} placeholder="Ask for assignments…" placeholderTextColor={C.sub} style={s.input} onSubmitEditing={send} returnKeyType="send" />
-        <Btn label="Send" onPress={send} disabled={busy || !text.trim()} />
-      </View>
-    </KeyboardAvoidingView>
+      )} />
   );
 }
 
@@ -237,9 +172,9 @@ function Network({ cfg }) {
   const done = Object.keys(res).length === PROBES.length;
   const ok = (g) => PROBES.filter((p) => p.group === g).some((p) => res[p.name]?.ok);
   let verdict = '';
-  if (done) verdict = res[PROBES[0].name]?.ok ? 'Your bot server is reachable here — the app can sync fully, files included.'
-    : ok('Apple') ? 'The bot server is blocked, but Apple/iCloud is reachable. Tell Claude — files may be able to travel through iCloud.'
-    : 'Only push may get through here. The app will show the text from each push and download files later on a real connection.';
+  if (done) verdict = res[PROBES[0].name]?.ok ? 'Your bot server is reachable here, so the app syncs fully, files included.'
+    : ok('Apple') ? 'The bot server is blocked, but Apple/iCloud is reachable. Tell Claude.'
+    : 'Only push may get through here. Use the iPad to send you the Homework zip, then Share it to this app.';
   return (
     <ScrollView contentContainerStyle={{ padding: 14 }}>
       <Text style={s.h2}>Network test</Text>
@@ -263,24 +198,52 @@ function Network({ cfg }) {
   );
 }
 
-function Settings({ cfg, setCfg }) {
-  const [server, setServer] = useState(cfg.server);
-  const [key, setKey] = useState(cfg.key);
+function Settings({ cfg, onAuth, onSignOut, onSyncNow, status }) {
+  const [name, setName] = useState(cfg.name || '');
+  const [password, setPassword] = useState('');
+  const [invite, setInvite] = useState('');
+  const [mode, setMode] = useState('in');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const go = async () => {
+    setBusy(true); setErr('');
+    try { await onAuth(mode, name.trim(), password, invite.trim()); setPassword(''); }
+    catch (e) { setErr(e.message || 'Could not reach the server'); }
+    setBusy(false);
+  };
+  if (cfg.token) {
+    return (
+      <ScrollView contentContainerStyle={{ padding: 14 }}>
+        <Text style={s.h2}>Account</Text>
+        <View style={s.verdict}><Text style={{ color: C.text }}>Signed in as {cfg.name || 'you'}. Your library, uploads and “submitted” marks sync to every device signed in to this account.</Text></View>
+        <Text style={[s.sub, { marginTop: 10 }]}>{status}</Text>
+        <View style={{ height: 14 }} />
+        <Btn label="Sync now" onPress={onSyncNow} />
+        <View style={{ height: 10 }} />
+        <Btn kind="ghost" label="Sign out" onPress={onSignOut} />
+      </ScrollView>
+    );
+  }
   return (
     <ScrollView contentContainerStyle={{ padding: 14 }} keyboardShouldPersistTaps="handled">
-      <Text style={s.h2}>Settings</Text>
-      <Text style={s.label}>Bot server address</Text>
-      <TextInput value={server} onChangeText={setServer} autoCapitalize="none" autoCorrect={false} style={s.field} />
-      <Text style={s.label}>Access key</Text>
-      <TextInput value={key} onChangeText={setKey} autoCapitalize="none" autoCorrect={false} secureTextEntry style={s.field} />
-      <View style={{ height: 12 }} />
-      <Btn label="Save" onPress={() => setCfg({ server: server.trim(), key: key.trim() })} />
+      <Text style={s.h2}>{mode === 'in' ? 'Sign in' : 'Create your account'}</Text>
+      <Text style={s.sub}>{mode === 'in' ? 'Use the same name and password on every device.' : 'Do this once, on your first device. You’ll need the 10-character invite code.'}</Text>
+      <Text style={s.label}>Name</Text>
+      <TextInput value={name} onChangeText={setName} autoCapitalize="none" autoCorrect={false} style={s.field} />
+      <Text style={s.label}>Password</Text>
+      <TextInput value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none" autoCorrect={false} style={s.field} />
+      {mode === 'up' && (<><Text style={s.label}>Invite code</Text><TextInput value={invite} onChangeText={setInvite} autoCapitalize="none" autoCorrect={false} style={s.field} /></>)}
+      {!!err && <Text style={{ color: C.red, marginTop: 10 }}>{err}</Text>}
+      <View style={{ height: 14 }} />
+      <Btn label={busy ? 'Working…' : mode === 'in' ? 'Sign in' : 'Create account'} onPress={go} disabled={busy || !name.trim() || password.length < 6} />
+      <View style={{ height: 8 }} />
+      <Btn kind="ghost" label={mode === 'in' ? 'New here? Create an account' : 'I already have an account'} onPress={() => { setMode(mode === 'in' ? 'up' : 'in'); setErr(''); }} />
     </ScrollView>
   );
 }
 
 /* ---------- shell ---------- */
-const TABS = [['library', 'Library'], ['import', 'Import'], ['chat', 'Chat'], ['net', 'Network'], ['settings', 'Settings']];
+const TABS = [['library', 'Library'], ['net', 'Network'], ['settings', 'Settings']];
 
 function Main() {
   const insets = useSafeAreaInsets();
@@ -290,123 +253,167 @@ function Main() {
   const [saved, setSaved] = useState({});
   const [status, setStatus] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [incoming, setIncoming] = useState(null);
+  const [ready, setReady] = useState(false);
   const api = useMemo(() => makeApi(cfg), [cfg]);
 
+  const itemsRef = useRef([]); itemsRef.current = items;
+  const queueRef = useRef([]);
+  const lastSyncRef = useRef(0);
+  const syncing = useRef(false);
+
   useEffect(() => { (async () => {
-    setCfgState(await load('cfg', DEFAULTS)); setItems(await load('items', [])); setSaved(await load('saved', {}));
+    setCfgState(await load('cfg2', DEFAULTS)); setItems(await load('items', [])); setSaved(await load('saved', {}));
+    queueRef.current = await load('queue', []); lastSyncRef.current = await load('lastSync', 0);
+    setReady(true);
   })(); }, []);
 
-  // Merging never throws away what's already on the device: local files, due time and "submitted" survive a sync.
-  const merge = useCallback((incoming) => setItems((cur) => {
+  const persistQueue = () => save('queue', queueRef.current);
+  const setCfg = (c) => { setCfgState(c); save('cfg2', c); };
+
+  // Merging never throws away what's on the device: local files and unsent changes survive a sync.
+  const merge = useCallback((incomingItems, fromServer) => setItems((cur) => {
     const map = new Map(cur.map((i) => [i.id, i]));
-    incoming.forEach((i) => {
+    const pendingState = new Set(queueRef.current.filter((q) => q.type === 'state').map((q) => q.id));
+    incomingItems.forEach((i) => {
       const old = map.get(i.id);
-      if (!old) { map.set(i.id, i); return; }
-      const localFiles = (old.files || []).filter((f) => f.local);
-      const names = new Set(localFiles.map((f) => f.name));
-      const files = [...localFiles, ...(i.files || []).filter((f) => !names.has(f.name))];
-      map.set(i.id, { ...old, ...i, files, dueAt: i.dueAt || old.dueAt || 0, submitted: old.submitted || false });
+      if (!old) { map.set(i.id, { ...i, submitted: !!i.submitted }); return; }
+      const keepLocal = (old.files || []).filter((f) => f.local || f.pending);
+      const names = new Set(keepLocal.map((f) => f.name));
+      const files = [...keepLocal, ...(i.files || []).filter((f) => !names.has(f.name))];
+      map.set(i.id, { ...old, ...i, files, dueAt: i.dueAt || old.dueAt || 0,
+        submitted: pendingState.has(i.id) ? old.submitted : (fromServer ? !!i.submitted : old.submitted || !!i.submitted) });
     });
     const next = [...map.values()].sort((a, b) => (b.posted_at || b.created_at) - (a.posted_at || a.created_at));
     save('items', next); return next;
   }), []);
 
+  const onSaved = useCallback((id, path) => setSaved((x) => { const n = { ...x, [id]: path }; save('saved', n); return n; }), []);
+
+  /** Sends changes made while offline (submitted marks, uploads) as soon as a connection works. */
+  const flushQueue = useCallback(async () => {
+    while (queueRef.current.length) {
+      const q = queueRef.current[0];
+      if (q.type === 'state') await api.setSubmitted(q.id, q.submitted);
+      else if (q.type === 'upload') {
+        const r = await api.upload(q.itemId, q.name, q.uri, q.mime);
+        setItems((cur) => { const next = cur.map((i) => (i.id !== q.itemId ? i : { ...i, files: (i.files || []).map((f) => (f.id === q.fileId ? { ...f, id: r.id, pending: false } : f)) })); save('items', next); return next; });
+      }
+      queueRef.current.shift(); persistQueue();
+    }
+  }, [api]);
+
+  const sync = useCallback(async () => {
+    if (!cfg.token || syncing.current) return;
+    syncing.current = true; setRefreshing(true);
+    try {
+      await flushQueue();
+      const r = await api.items(lastSyncRef.current);
+      const got = r.items || [];
+      merge(got, true);
+      got.forEach((it) => { if (it.dueAt && !it.submitted) scheduleReminders(it); else if (it.submitted) cancelReminders(it); });
+      lastSyncRef.current = got.reduce((m, i) => Math.max(m, i.updated_at || 0), lastSyncRef.current); save('lastSync', lastSyncRef.current);
+      setStatus(`Synced ${new Date().toLocaleTimeString()}${got.length ? ` · ${got.length} updated` : ''}`);
+    } catch (e) {
+      if (e.status === 401) { setCfg({ ...cfg, token: '' }); setStatus('Please sign in again.'); }
+      else setStatus(queueRef.current.length ? `Offline — ${queueRef.current.length} change${queueRef.current.length > 1 ? 's' : ''} will send when you reconnect.` : 'Offline — showing what’s saved on this device.');
+    }
+    syncing.current = false; setRefreshing(false);
+  }, [api, cfg, flushQueue, merge]);
+
+  // Sync on launch, when the app comes to the front, and every minute while open (reconnects are picked up automatically).
+  useEffect(() => { if (ready && cfg.token) sync(); }, [ready, cfg.token]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const t = setInterval(() => sync(), 60000);
+    const sub = AppState.addEventListener('change', (st) => { if (st === 'active') sync(); });
+    return () => { clearInterval(t); sub.remove(); };
+  }, [sync]);
+
   const toggleSubmitted = useCallback((item) => {
     const updated = { ...item, submitted: !item.submitted };
     setItems((cur) => { const next = cur.map((i) => (i.id === item.id ? updated : i)); save('items', next); return next; });
     if (updated.submitted) cancelReminders(updated); else scheduleReminders(updated);
-  }, []);
+    queueRef.current = [...queueRef.current.filter((q) => !(q.type === 'state' && q.id === item.id)), { type: 'state', id: item.id, submitted: updated.submitted }];
+    persistQueue(); sync();
+  }, [sync]);
 
-  // A zip arriving from Messages' share sheet (or the picker): file it into classes and schedule reminders.
+  /** Adds a finished file to an assignment: shown at once, uploaded as soon as there is a connection. */
+  const uploadFor = useCallback(async (item, asset) => {
+    const name = asset.name || 'work';
+    const local = await saveLocal(asset.uri, name);
+    const fileId = 'pending-' + Date.now();
+    const file = { id: fileId, name, size: asset.size || 0, local, origin: 'upload', pending: true };
+    setItems((cur) => { const next = cur.map((i) => (i.id === item.id ? { ...i, files: [...(i.files || []), file] } : i)); save('items', next); return next; });
+    queueRef.current = [...queueRef.current, { type: 'upload', itemId: item.id, fileId, name, uri: local, mime: asset.mimeType }];
+    persistQueue(); sync();
+  }, [sync]);
+
+  const pickAndUpload = useCallback(async (item) => {
+    try { const r = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true }); if (!r.canceled) await uploadFor(item, r.assets[0]); } catch {}
+  }, [uploadFor]);
+
   const handleZip = useCallback(async (uri) => {
     const imported = await importZipFile(uri);
-    merge(imported);
+    merge(imported, false);
     imported.forEach((it) => scheduleReminders(it));
-    setTab('library');
-    const msg = `Imported ${imported.length} assignment${imported.length === 1 ? '' : 's'} into your classes.`;
-    setStatus(msg);
-    return msg;
+    setTab('library'); setStatus(`Imported ${imported.length} item${imported.length === 1 ? '' : 's'} into your classes.`);
   }, [merge]);
 
+  // Files opened with Share → Classroom Feed: a Homework zip fills the library; anything else (e.g. from Quill) is your finished work.
   useEffect(() => {
-    const isZip = (u) => !!u && /\.zip(\?|$)/i.test(u);
-    Linking.getInitialURL().then((u) => { if (isZip(u)) handleZip(u).catch(() => setStatus('Could not read that zip.')); }).catch(() => {});
-    const sub = Linking.addEventListener('url', (e) => { if (isZip(e.url)) handleZip(e.url).catch(() => setStatus('Could not read that zip.')); });
+    const handle = (u) => {
+      if (!u || !/^file:/i.test(u)) return;
+      const name = decodeURIComponent(u.split('/').pop().split('?')[0]);
+      if (/\.zip$/i.test(name)) handleZip(u).catch(() => setStatus('Could not read that zip.'));
+      else setIncoming({ uri: u, name });
+    };
+    Linking.getInitialURL().then(handle).catch(() => {});
+    const sub = Linking.addEventListener('url', (e) => handle(e.url));
     return () => sub.remove();
   }, [handleZip]);
 
   const shareLibrary = useCallback(async () => {
-    try {
-      const path = await exportLibraryZip(items);
-      await openFile(path); // AirDrop / Messages / Save to Files — the other device opens it the same way
-    } catch { setStatus('Sharing needs the installed app.'); }
-  }, [items]);
-  const onSaved = useCallback((id, path) => setSaved((x) => { const n = { ...x, [id]: path }; save('saved', n); return n; }), []);
-  const setCfg = (c) => { setCfgState(c); save('cfg', c); };
-  // Attach picked files to the newest item (copied into the app so they open offline).
-  const onAttach = useCallback(async (assets) => {
-    const target = items[0]; if (!target) return;
-    const files = [];
-    for (const a of assets) {
-      const path = await saveLocal(a.uri, a.name || 'file');
-      files.push({ id: 'local-' + Date.now() + '-' + files.length, name: a.name || 'file', size: a.size || 0, local: path });
-    }
-    merge([{ ...target, files: [...(target.files || []), ...files] }]);
-  }, [items, merge]);
+    try { await openFile(await exportLibraryZip(itemsRef.current)); } catch { setStatus('Sharing needs the installed app.'); }
+  }, []);
 
-  const sync = useCallback(async () => {
-    if (!cfg.key) { setStatus('Add your access key in Settings first.'); return; }
-    setRefreshing(true);
-    try {
-      const since = items.reduce((m, i) => Math.max(m, i.created_at), 0);
-      const r = await api.items(since);
-      merge(r.items || []);
-      setStatus(`Synced ${new Date().toLocaleTimeString()} · ${(r.items || []).length} new`);
-    } catch { setStatus('Offline — showing what’s saved on your phone.'); }
-    setRefreshing(false);
-  }, [api, cfg.key, items, merge]);
+  const onAuth = useCallback(async (mode, name, password, invite) => {
+    const open = makeApi({ ...cfg, token: '' });
+    const r = mode === 'up' ? await open.register(name, password, invite) : await open.login(name, password);
+    setCfg({ ...cfg, token: r.token, name: r.name });
+  }, [cfg]);
 
-  useEffect(() => { if (cfg.key) sync(); }, [cfg.key]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Register for push once a key exists, so new assignments arrive even when nothing else gets through.
   useEffect(() => { (async () => {
-    if (!cfg.key || Platform.OS === 'web') return;
-    try {
-      const p = await Notifications.requestPermissionsAsync();
-      if (!p.granted) return;
-      const tok = await Notifications.getExpoPushTokenAsync();
-      await api.registerPush(tok.data);
-    } catch {}
-  })(); }, [cfg.key, api]);
+    if (!cfg.token || Platform.OS === 'web') return;
+    try { const p = await Notifications.requestPermissionsAsync(); if (!p.granted) return; const tok = await Notifications.getExpoPushTokenAsync(); await api.registerPush(tok.data); } catch {}
+  })(); }, [cfg.token, api]);
 
-  // A push can carry the item itself (title/body/data) — store it so it's readable with zero connection.
   useEffect(() => {
-    const sub = Notifications.addNotificationReceivedListener((n) => {
-      const d = n.request.content.data;
-      if (d && d.item) merge([d.item]);
-    });
+    const sub = Notifications.addNotificationReceivedListener((n) => { const d = n.request.content.data; if (d && d.item) merge([d.item], true); });
     return () => sub.remove();
   }, [merge]);
 
+  const ctx = useMemo(() => ({ api, saved, onSaved, toggleSubmitted, pickAndUpload, openPreview: setPreview }), [api, saved, onSaved, toggleSubmitted, pickAndUpload]);
+
   return (
-    <AppCtx.Provider value={{ toggleSubmitted }}>
-    <View style={{ flex: 1, backgroundColor: C.bg, paddingTop: insets.top }}>
-      <View style={s.top}><Text style={s.topTitle}>Classroom Feed</Text></View>
-      <View style={{ flex: 1 }}>
-        {tab === 'library' && <Library items={items} api={api} saved={saved} onSaved={onSaved} onRefresh={sync} refreshing={refreshing} status={status} onShare={shareLibrary} />}
-        {tab === 'import' && <Importer items={items} onAdd={(it) => { merge([it]); }} onAttach={onAttach} onZip={handleZip} />}
-        {tab === 'chat' && <Chat items={items} api={api} saved={saved} onSaved={onSaved} onNewItems={merge} />}
-        {tab === 'net' && <Network cfg={cfg} />}
-        {tab === 'settings' && <Settings cfg={cfg} setCfg={setCfg} />}
+    <AppCtx.Provider value={ctx}>
+      <View style={{ flex: 1, backgroundColor: C.bg, paddingTop: insets.top }}>
+        <View style={s.top}><Text style={s.topTitle}>Classroom Feed</Text></View>
+        <View style={{ flex: 1 }}>
+          {tab === 'library' && <Library items={items} onRefresh={sync} refreshing={refreshing} status={cfg.token ? status : 'Sign in under Settings to sync.'} onShare={shareLibrary} />}
+          {tab === 'net' && <Network cfg={cfg} />}
+          {tab === 'settings' && <Settings cfg={cfg} onAuth={onAuth} onSignOut={() => setCfg({ ...cfg, token: '' })} onSyncNow={sync} status={status} />}
+        </View>
+        <View style={[s.tabs, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+          {TABS.map(([k, label]) => (
+            <Pressable key={k} style={s.tab} onPress={() => setTab(k)}>
+              <View style={[s.tabPill, tab === k && { backgroundColor: '#e8f0fe' }]}><Text style={[s.tabTxt, tab === k && { color: C.blue, fontWeight: '700' }]}>{label}</Text></View>
+            </Pressable>
+          ))}
+        </View>
+        {preview && <Preview file={preview} onClose={() => setPreview(null)} />}
+        {incoming && <AttachPicker incoming={incoming} items={items} onClose={() => setIncoming(null)} onPick={(it) => { uploadFor(it, { uri: incoming.uri, name: incoming.name }); setIncoming(null); setTab('library'); }} />}
       </View>
-      <View style={[s.tabs, { paddingBottom: Math.max(insets.bottom, 8) }]}>
-        {TABS.map(([k, label]) => (
-          <Pressable key={k} style={s.tab} onPress={() => setTab(k)}>
-            <View style={[s.tabPill, tab === k && { backgroundColor: '#e8f0fe' }]}><Text style={[s.tabTxt, tab === k && { color: C.blue, fontWeight: '700' }]}>{label}</Text></View>
-          </Pressable>
-        ))}
-      </View>
-    </View>
     </AppCtx.Provider>
   );
 }
@@ -431,11 +438,6 @@ const s = StyleSheet.create({
   btn: { backgroundColor: C.blue, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, alignItems: 'center' },
   btnGhost: { backgroundColor: 'transparent', paddingHorizontal: 10 },
   btnTxt: { color: '#fff', fontWeight: '600', fontSize: 14 },
-  bubble: { maxWidth: '85%', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18 },
-  bubbleMe: { backgroundColor: C.blue, borderBottomRightRadius: 4 },
-  bubbleBot: { backgroundColor: '#fff', borderWidth: 1, borderColor: C.line, borderBottomLeftRadius: 4 },
-  inputBar: { flexDirection: 'row', gap: 8, padding: 10, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: C.line, alignItems: 'center' },
-  input: { flex: 1, backgroundColor: C.bg, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 10, fontSize: 15, color: C.text },
   tabs: { flexDirection: 'row', backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: C.line, paddingTop: 6 },
   tab: { flex: 1, alignItems: 'center' },
   tabPill: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 16 },
@@ -450,4 +452,5 @@ const s = StyleSheet.create({
   tile: { flex: 1, minHeight: 120, borderRadius: 12, padding: 14, justifyContent: 'space-between' },
   tileName: { color: '#fff', fontSize: 16, fontWeight: '600' },
   tileCount: { color: '#ffffffcc', fontSize: 12 },
+  previewBar: { flexDirection: 'row', alignItems: 'center', paddingTop: 52, paddingHorizontal: 10, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.line },
 });
