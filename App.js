@@ -9,8 +9,8 @@ import { fileSize, openFile, saveLocal, removeLocal } from './src/files';
 import { exportLibraryZip, importZipFile } from './src/ziplib';
 import { cancelReminders, scheduleReminders } from './src/remind';
 import { AppCtx } from './src/ctx';
-import { Icon, isWork } from './src/ui';
-import { AttachPicker, ClassScreen, ClassesScreen, ItemScreen, NetworkScreen, Notice, Preview, SettingsScreen, TodoScreen } from './src/screens';
+import { Icon, isWork, niceCourse } from './src/ui';
+import { AttachPicker, ClassScreen, ClassesScreen, ItemScreen, NetworkScreen, Notice, Preview, SettingsScreen, TodoScreen, WhatsNew } from './src/screens';
 
 const NAV = [['classes', 'Classes', 'home'], ['todo', 'To-do', 'checkbox'], ['settings', 'Settings', 'settings']];
 
@@ -26,6 +26,7 @@ function Main() {
   const [preview, setPreview] = useState(null);
   const [incoming, setIncoming] = useState(null);
   const [notice, setNotice] = useState('');
+  const [fresh, setFresh] = useState([]);
   const [ready, setReady] = useState(false);
   const api = useMemo(() => makeApi(cfg), [cfg]);
 
@@ -43,7 +44,7 @@ function Main() {
   const pop = useCallback(() => setStack((x) => x.slice(0, -1)), []);
 
   useEffect(() => { (async () => {
-    setCfgState(await load('cfg2', DEFAULTS)); setItems(await load('items', [])); setSaved(await load('saved', {}));
+    setCfgState(await load('cfg2', DEFAULTS)); setItems((await load('items', [])).map((i) => ({ ...i, course: niceCourse(i.course) }))); setSaved(await load('saved', {}));
     queueRef.current = await load('queue', []); lastSyncRef.current = await load('lastSync', 0);
     setReady(true);
   })(); }, []);
@@ -55,7 +56,8 @@ function Main() {
   const merge = useCallback((incomingItems, fromServer) => setItems((cur) => {
     const map = new Map(cur.map((i) => [i.id, i]));
     const pendingState = new Set(queueRef.current.filter((q) => q.type === 'state').map((q) => q.id));
-    incomingItems.forEach((i) => {
+    incomingItems.forEach((raw) => {
+      const i = { ...raw, course: niceCourse(raw.course) };
       const old = map.get(i.id);
       if (!old) { map.set(i.id, { ...i, submitted: !!i.submitted }); return; }
       const keepLocal = (old.files || []).filter((f) => f.local || f.pending);
@@ -72,18 +74,24 @@ function Main() {
 
   /** Sends changes made while offline (done marks, uploads) as soon as a connection works. */
   const flushQueue = useCallback(async () => {
+    // A failed send never blocks pulling new work: a network error keeps the change for later, a rejected one (4xx) is dropped.
     while (queueRef.current.length) {
       const q = queueRef.current[0];
-      if (q.type === 'state') await api.setSubmitted(q.id, q.submitted);
-      else if (q.type === 'upload') {
-        const r = await api.upload(q.itemId, q.name, q.uri, q.mime);
-        setItems((cur) => { const next = cur.map((i) => {
-          if (i.id !== q.itemId) return i;
-          const files = i.files || [];
-          // The server already had this exact file (a retry, or another device uploaded it): keep one copy.
-          if (files.some((f) => f.id === r.id)) return { ...i, files: files.filter((f) => f.id !== q.fileId) };
-          return { ...i, files: files.map((f) => (f.id === q.fileId ? { ...f, id: r.id, pending: false } : f)) };
-        }); save('items', next); return next; });
+      try {
+        if (q.type === 'state') await api.setSubmitted(q.id, q.submitted);
+        else if (q.type === 'upload') {
+          const r = await api.upload(q.itemId, q.name, q.uri, q.mime);
+          setItems((cur) => { const next = cur.map((i) => {
+            if (i.id !== q.itemId) return i;
+            const files = i.files || [];
+            // The server already had this exact file (a retry, or another device uploaded it): keep one copy.
+            if (files.some((f) => f.id === r.id)) return { ...i, files: files.filter((f) => f.id !== q.fileId) };
+            return { ...i, files: files.map((f) => (f.id === q.fileId ? { ...f, id: r.id, pending: false } : f)) };
+          }); save('items', next); return next; });
+        }
+      } catch (e) {
+        if (e.status === 401) throw e;
+        if (!(e.status >= 400 && e.status < 500)) break; // offline or server hiccup: try again next sync
       }
       queueRef.current.shift(); persistQueue();
     }
@@ -96,6 +104,9 @@ function Main() {
       await flushQueue();
       const r = await api.items(lastSyncRef.current);
       const got = r.items || [];
+      const known = new Set(itemsRef.current.map((i) => i.id));
+      const brandNew = got.filter((i) => !known.has(i.id) && i.kind !== 'email');
+      if (known.size && brandNew.length) setFresh(brandNew);
       merge(got, true);
       got.forEach((it) => { if (it.dueAt && !it.submitted) scheduleReminders(it); else if (it.submitted) cancelReminders(it); });
       lastSyncRef.current = got.reduce((m, i) => Math.max(m, i.updated_at || 0), lastSyncRef.current); save('lastSync', lastSyncRef.current);
@@ -145,6 +156,9 @@ function Main() {
 
   const handleZip = useCallback(async (uri) => {
     const imported = await importZipFile(uri);
+    const known = new Set(itemsRef.current.map((i) => i.id));
+    const brandNew = imported.filter((i) => !known.has(i.id));
+    if (brandNew.length) setFresh(brandNew);
     merge(imported, false);
     imported.forEach((it) => scheduleReminders(it));
     setStack([]); setTab('classes');
@@ -223,6 +237,7 @@ function Main() {
           </View>
         )}
         <Notice text={notice} />
+        {fresh.length > 0 && <WhatsNew fresh={fresh} onClose={() => setFresh([])} onOpen={(it) => { setFresh([]); setTab('classes'); setStack([{ t: 'class', name: niceCourse(it.course) }, { t: 'item', id: it.id }]); }} />}
         {preview && <Preview file={preview} onClose={() => setPreview(null)} />}
         {incoming && <AttachPicker incoming={incoming} items={items} onClose={() => setIncoming(null)}
           onPick={(it) => { uploadFor(it, { uri: incoming.uri, name: incoming.name }); setIncoming(null); setStack([{ t: 'item', id: it.id }]); }} />}

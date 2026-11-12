@@ -24,6 +24,7 @@ export function parseZip(bytes) {
         due: it.due || '',
         dueAt: it.dueAt || 0,
         posted_at: it.postedAt || now,
+        posted_text: it.postedText || '',
         created_at: now,
         body: it.body || '',
         url: it.url || '',

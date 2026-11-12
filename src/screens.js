@@ -4,7 +4,7 @@ import { WebView } from 'react-native-webview';
 import { C, PROBES, courseColor, runProbe } from './lib';
 import { downloadFile, openFile } from './files';
 import { AppCtx } from './ctx';
-import { BUCKETS, Icon, SectionHeader, WorkRow, bucketOf, isWork, kindOf, postedLabel, shortDue, statusOf, st } from './ui';
+import { BUCKETS, Icon, SectionHeader, WorkRow, bucketOf, isWork, kindOf, niceCourse, postedDetail, postedLabel, shortDue, statusOf, st } from './ui';
 
 export const Btn = ({ label, onPress, kind = 'solid', disabled, icon }) => (
   <Pressable onPress={onPress} disabled={disabled} style={[s.btn, kind === 'ghost' && s.btnGhost, kind === 'outline' && s.btnOutline, disabled && { opacity: 0.5 }]}>
@@ -180,7 +180,7 @@ export function ItemScreen({ id }) {
           <View style={[st.rowIcon, { backgroundColor: color, width: 46, height: 46, borderRadius: 23 }]}><Icon n={work ? 'document-text' : 'book'} s={24} c="#fff" /></View>
           <View style={{ flex: 1 }}>
             <Text style={[s.itemTitle, { color }]}>{item.title}</Text>
-            <Text style={s.itemMeta}>{postedLabel(item)}</Text>
+            <Text style={s.itemMeta}>{postedDetail(item) || postedLabel(item)} · Google Classroom</Text>
           </View>
         </View>
         {work && (
@@ -270,6 +270,40 @@ export function AttachPicker({ incoming, items, onPick, onClose }) {
         <FlatList data={list} keyExtractor={(i) => i.id}
           ListEmptyComponent={<Text style={s.empty}>No open assignments to attach to yet.</Text>}
           renderItem={({ item }) => <WorkRow item={item} color={courseColor(item.course)} showCourse onPress={() => onPick(item)} />} />
+      </View>
+    </Modal>
+  );
+}
+
+/** After a sync or zip import: "3 new Biology assignments", with when each was posted on Google Classroom. */
+export function WhatsNew({ fresh, onClose, onOpen }) {
+  const groups = [];
+  fresh.forEach((i) => {
+    const course = niceCourse(i.course);
+    const noun = i.kind === 'announcement' ? 'announcement' : isWork(i) ? 'assignment' : 'material';
+    const g = groups.find((x) => x.course === course && x.noun === noun) || (groups[groups.length] = { course, noun, list: [] }, groups[groups.length - 1]);
+    g.list.push(i);
+  });
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={s.scrim}>
+        <View style={s.sheet}>
+          <Text style={s.sheetTitle}>{fresh.length} new from Google Classroom</Text>
+          <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ paddingBottom: 6 }}>
+            {groups.map((g) => (
+              <View key={g.course + g.noun} style={{ marginTop: 14 }}>
+                <Text style={[s.sheetHead, { color: courseColor(g.course) }]}>{g.list.length} new {g.course} {g.noun}{g.list.length === 1 ? '' : 's'}</Text>
+                {g.list.map((i) => (
+                  <Pressable key={i.id} onPress={() => onOpen(i)} style={s.sheetRow}>
+                    <Text style={s.sheetItem} numberOfLines={2}>{i.title}</Text>
+                    <Text style={s.sheetPosted}>{postedDetail(i) || 'Posted recently'}{isWork(i) && i.dueAt ? ' · due ' + shortDue(i) : ''}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ))}
+          </ScrollView>
+          <View style={{ marginTop: 14 }}><Btn label="Got it" onPress={onClose} /></View>
+        </View>
       </View>
     </Modal>
   );
@@ -414,6 +448,13 @@ const s = StyleSheet.create({
   workStatus: { fontSize: 13, fontWeight: '700', color: C.sub },
   workHint: { fontSize: 12, color: C.sub, marginTop: 4, lineHeight: 17 },
   previewBar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 54, paddingHorizontal: 14, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line },
+  scrim: { flex: 1, backgroundColor: '#00000066', justifyContent: 'center', padding: 20 },
+  sheet: { backgroundColor: '#fff', borderRadius: 16, padding: 20, maxWidth: 520, width: '100%', alignSelf: 'center' },
+  sheetTitle: { fontSize: 20, fontWeight: '600', color: C.text },
+  sheetHead: { fontSize: 15, fontWeight: '700' },
+  sheetRow: { paddingVertical: 9, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line },
+  sheetItem: { fontSize: 15, color: C.text, fontWeight: '500' },
+  sheetPosted: { fontSize: 12.5, color: C.sub, marginTop: 2 },
   notice: { position: 'absolute', left: 16, right: 16, bottom: 86, backgroundColor: '#323232', borderRadius: 8, paddingHorizontal: 16, paddingVertical: 13, elevation: 6 },
   noticeTxt: { color: '#fff', fontSize: 14 },
   setHead: { fontSize: 13, fontWeight: '700', color: C.blueDark, marginTop: 18, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.6 },

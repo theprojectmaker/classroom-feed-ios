@@ -33,6 +33,22 @@ export function postedLabel(item) {
   return 'Posted ' + new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
+// "P3 BIOLOGY H 2026-27 P3" -> "P3 BIOLOGY H": one name per class whichever device or zip it came from.
+export const niceCourse = (s) => (String(s || '').replace(/\s*20\d{2}-\d{2}.*$/, '').trim() || String(s || 'Other').trim());
+
+/** When it was posted on Google Classroom, with the clock time whenever Classroom gave one. */
+export function postedDetail(item) {
+  const t = String(item.posted_text || '').trim();
+  const ms = item.posted_at || item.created_at || 0;
+  const clock = /^\d{1,2}:\d{2}\s?[AP]M/i.test(t);
+  if (!ms && !t) return '';
+  if (!clock && t && !/^(today|yesterday)/i.test(t) && !ms) return 'Posted ' + t;
+  const days = Math.floor((startOfToday() - new Date(ms).setHours(0, 0, 0, 0)) / DAY);
+  const day = /^yesterday/i.test(t) ? 'yesterday' : /^today/i.test(t) && !clock ? 'today' : days <= 0 ? 'today' : days === 1 ? 'yesterday' : new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  const time = clock ? ', ' + new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+  return 'Posted ' + day + time;
+}
+
 export const BUCKETS = ['Overdue', 'This week', 'Next week', 'Later', 'No due date'];
 export function bucketOf(i) {
   if (!i.dueAt) return 'No due date';

@@ -1,0 +1,32 @@
+# Checks Google Classroom for new work every 30 minutes (about 6am-11pm US Eastern) by asking the bot to scan.
+# Free: scheduled workflows on a public repo cost nothing. The key is a repository secret (BOT_SCAN_KEY).
+name: Check Classroom for new work
+
+on:
+  schedule:
+    - cron: '*/30 10-23,0-3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: classroom-scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Ask the bot to scan (3 new posts per call, repeats while it keeps finding more)
+        env:
+          BOT: https://classroom-bot.greatneck.workers.dev
+          KEY: ${{ secrets.BOT_SCAN_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then echo "::error::Add the BOT_SCAN_KEY repository secret"; exit 1; fi
+          for i in 1 2 3 4 5 6 7 8; do
+            R=$(curl -s -m 150 "$BOT/scan/$KEY" || true)
+            echo "scan $i: $R"
+            case "$R" in
+              *Payment*|*"minutes limit"*) echo "::warning::Browserbase plan limit reached - upgrade the plan so scanning can run"; break;;
+              *'"added":0'*|*'"ok":false'*|'') break;;
+            esac
+          done
