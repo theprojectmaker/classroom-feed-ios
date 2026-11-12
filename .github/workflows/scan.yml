@@ -1,10 +1,10 @@
-# Checks Google Classroom for new work every 30 minutes (about 6am-11pm US Eastern) by asking the bot to scan.
+# Checks Google Classroom for new work every 30 minutes (school days only: the bot enforces 8:00 am-2:30 pm Eastern) by asking the bot to scan.
 # Free: scheduled workflows on a public repo cost nothing. The key is a repository secret (BOT_SCAN_KEY).
 name: Check Classroom for new work
 
 on:
   schedule:
-    - cron: '*/30 10-23,0-3 * * *'
+    - cron: '*/30 12-19 * * 1-5'
   workflow_dispatch:
 
 concurrency:
