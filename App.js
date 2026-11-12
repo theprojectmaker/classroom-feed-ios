@@ -9,6 +9,7 @@ import { fileSize, openFile, saveLocal, removeLocal } from './src/files';
 import { exportLibraryZip, importZipFile } from './src/ziplib';
 import { cancelReminders, scheduleReminders } from './src/remind';
 import { AppCtx } from './src/ctx';
+import { cloudLibrary } from './src/cloud';
 import { Icon, isWork, niceCourse } from './src/ui';
 import { AttachPicker, ClassScreen, ClassesScreen, ItemScreen, NetworkScreen, Notice, Preview, SettingsScreen, TodoScreen, WhatsNew } from './src/screens';
 
@@ -28,6 +29,8 @@ function Main() {
   const [notice, setNotice] = useState('');
   const [fresh, setFresh] = useState([]);
   const [checkInfo, setCheckInfo] = useState(null);
+  const [ck, setCk] = useState(null); // read-only iCloud details, learned while the bot is reachable
+  const ckRef = useRef(null); ckRef.current = ck;
   const [ready, setReady] = useState(false);
   const api = useMemo(() => makeApi(cfg), [cfg]);
 
@@ -46,6 +49,7 @@ function Main() {
 
   useEffect(() => { (async () => {
     setCfgState(await load('cfg2', DEFAULTS)); setItems((await load('items', [])).map((i) => ({ ...i, course: niceCourse(i.course) }))); setSaved(await load('saved', {}));
+    setCk(await load('ck', null));
     queueRef.current = await load('queue', []); lastSyncRef.current = await load('lastSync', 0);
     setReady(true);
   })(); }, []);
@@ -98,6 +102,14 @@ function Main() {
     }
   }, [api]);
 
+  const applyIncoming = useCallback((got) => {
+    const known = new Set(itemsRef.current.map((i) => i.id));
+    const brandNew = got.filter((i) => !known.has(i.id) && i.kind !== 'email');
+    if (known.size && brandNew.length) setFresh(brandNew);
+    merge(got, true);
+    got.forEach((it) => { if (it.dueAt && !it.submitted) scheduleReminders(it); else if (it.submitted) cancelReminders(it); });
+  }, [merge]);
+
   const sync = useCallback(async () => {
     if (!cfg.token || syncing.current) return;
     syncing.current = true; setRefreshing(true);
@@ -105,20 +117,20 @@ function Main() {
       await flushQueue();
       const r = await api.items(lastSyncRef.current);
       const got = r.items || [];
-      const known = new Set(itemsRef.current.map((i) => i.id));
-      const brandNew = got.filter((i) => !known.has(i.id) && i.kind !== 'email');
-      if (known.size && brandNew.length) setFresh(brandNew);
-      merge(got, true);
-      got.forEach((it) => { if (it.dueAt && !it.submitted) scheduleReminders(it); else if (it.submitted) cancelReminders(it); });
-      try { setCheckInfo(await api.status()); } catch { /* the banner just keeps its last values */ }
+      applyIncoming(got);
+      try { const st = await api.status(); setCheckInfo(st); if (st.ck) { setCk(st.ck); save('ck', st.ck); } } catch { /* the banner just keeps its last values */ }
       lastSyncRef.current = got.reduce((m, i) => Math.max(m, i.updated_at || 0), lastSyncRef.current); save('lastSync', lastSyncRef.current);
       setStatus(`Synced ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${got.length ? ` · ${got.length} updated` : ''}`);
     } catch (e) {
       if (e.status === 401) { setCfg({ ...cfg, token: '' }); setStatus('Please sign in again.'); }
+      else if (ckRef.current && await (async () => {
+        // The bot can't be reached (restricted Wi-Fi): read the library from iCloud instead.
+        try { const lib = await cloudLibrary(ckRef.current); applyIncoming(lib.items); setStatus(`Synced from iCloud ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · this network blocks the bot`); return true; } catch { return false; }
+      })()) { /* status already set */ }
       else setStatus(queueRef.current.length ? `Offline · ${queueRef.current.length} change${queueRef.current.length > 1 ? 's' : ''} will send when you reconnect` : 'Offline · showing what’s saved on this device');
     }
     syncing.current = false; setRefreshing(false);
-  }, [api, cfg, flushQueue, merge]);
+  }, [api, cfg, flushQueue, merge, applyIncoming]);
 
   // Sync on launch, when the app comes to the front, and every minute while open (reconnects are picked up automatically).
   useEffect(() => { if (ready && cfg.token) sync(); }, [ready, cfg.token]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -202,11 +214,11 @@ function Main() {
 
   const goTab = (k) => { setStack([]); setTab(k); };
   const ctx = useMemo(() => ({
-    items, cfg, api, saved, onSaved, status, refreshing, checkInfo, refresh: sync, toggleSubmitted, pickAndUpload, shareLibrary, onAuth,
+    items, cfg, api, saved, onSaved, status, refreshing, checkInfo, ck, refresh: sync, toggleSubmitted, pickAndUpload, shareLibrary, onAuth,
     onSignOut: () => setCfg({ ...cfg, token: '' }),
     openPreview: setPreview, openClass: (name) => push({ t: 'class', name }), openItem: (id) => push({ t: 'item', id }),
     openNetwork: () => push({ t: 'network' }), pop,
-  }), [items, cfg, api, saved, onSaved, status, refreshing, checkInfo, sync, toggleSubmitted, pickAndUpload, shareLibrary, onAuth, push, pop]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [items, cfg, api, saved, onSaved, status, refreshing, checkInfo, ck, sync, toggleSubmitted, pickAndUpload, shareLibrary, onAuth, push, pop]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const top = stack[stack.length - 1];
   const dueSoon = items.filter((i) => isWork(i) && !i.submitted && i.dueAt && i.dueAt < Date.now() + 2 * 86400000).length;

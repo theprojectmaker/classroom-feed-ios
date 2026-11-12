@@ -2,7 +2,8 @@ import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { C, PROBES, courseColor, runProbe } from './lib';
-import { downloadFile, openFile } from './files';
+import { downloadFile, openFile, saveBase64 } from './files';
+import { ckLookup, cloudFileBase64 } from './cloud';
 import { AppCtx } from './ctx';
 import { BUCKETS, Icon, addedDetail, agoLabel, inCheckHours, nextCheckAt, whenLabel, SectionHeader, WorkRow, bucketOf, isWork, kindOf, niceCourse, postedDetail, postedLabel, shortDue, statusOf, st } from './ui';
 
@@ -262,10 +263,17 @@ function Attachment({ f, onPress, mine }) {
 
 /* ---------- Preview / attach / notice ---------- */
 export function Preview({ file, onClose }) {
-  const { api, saved, onSaved } = useContext(AppCtx);
+  const { api, saved, onSaved, ck } = useContext(AppCtx);
   const [busy, setBusy] = useState(false);
+  const [cloudErr, setCloudErr] = useState('');
   const local = file.local || saved[file.id];
   const uri = local || api.fileUrl(file.id);
+  const doCloud = async () => {
+    setBusy(true); setCloudErr('');
+    try { onSaved(file.id, await saveBase64(await cloudFileBase64(ck, file), file.name)); }
+    catch (e) { setCloudErr(e.message || 'Could not get it from iCloud'); }
+    setBusy(false);
+  };
   const doSave = async () => { setBusy(true); try { onSaved(file.id, await downloadFile(uri, file.name)); } catch {} setBusy(false); };
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
@@ -279,7 +287,7 @@ export function Preview({ file, onClose }) {
           ? <View style={{ padding: 20 }}><Text style={s.rowSub}>Previews open inside the installed app.</Text><Text style={{ color: C.blue, marginTop: 8 }} onPress={() => Linking.openURL(uri)}>Open in browser</Text></View>
           : <WebView source={{ uri }} originWhitelist={['*']} allowFileAccess allowingReadAccessToURL={local || undefined} startInLoadingState
               renderLoading={() => <ActivityIndicator style={{ marginTop: 40 }} color={C.blue} />}
-              renderError={() => <View style={{ padding: 24 }}><Text style={s.attachName}>Can’t preview right now</Text><Text style={[s.rowSub, { marginTop: 6 }]}>No connection. Save it when you’re online and it opens offline.</Text></View>} />}
+              renderError={() => <View style={{ padding: 24 }}><Text style={s.attachName}>Can’t preview right now</Text><Text style={[s.rowSub, { marginTop: 6 }]}>{ck ? 'This network may block the bot. You can still get the file through iCloud.' : 'No connection. Save it when you’re online and it opens offline.'}</Text>{ck ? <View style={{ marginTop: 14, alignItems: 'flex-start' }}><Btn icon="cloud-download-outline" label="Get it from iCloud" onPress={doCloud} disabled={busy} /></View> : null}{!!cloudErr && <Text style={{ color: C.red, marginTop: 10 }}>{cloudErr}</Text>}</View>} />}
       </View>
     </Modal>
   );
@@ -341,7 +349,7 @@ export function Notice({ text }) {
 
 /* ---------- Settings (account, devices, network test) ---------- */
 export function SettingsScreen() {
-  const { cfg, onAuth, onSignOut, refresh, status, shareLibrary, openNetwork } = useContext(AppCtx);
+  const { cfg, onAuth, onSignOut, refresh, status, shareLibrary, openNetwork, ck } = useContext(AppCtx);
   const [name, setName] = useState(cfg.name || '');
   const [password, setPassword] = useState('');
   const [invite, setInvite] = useState('');
@@ -359,6 +367,7 @@ export function SettingsScreen() {
             <Text style={s.itemBody2}>Signed in as <Text style={{ fontWeight: '700' }}>{cfg.name || 'you'}</Text></Text>
             <Text style={s.rowSub}>Your classes, uploads and “done” marks sync to every device signed in to this account.</Text>
             <Text style={[s.rowSub, { marginTop: 8 }]}>{status}</Text>
+            <Text style={[s.rowSub, { marginTop: 4 }]}>iCloud backup route: {ck ? 'ready (used when your Wi-Fi blocks the bot)' : 'not set up yet'}</Text>
             <View style={{ gap: 8, marginTop: 12 }}><Btn icon="sync" label="Sync now" onPress={refresh} /><Btn kind="outline" label="Sign out" onPress={onSignOut} /></View>
           </View>
         ) : (
@@ -392,10 +401,21 @@ export function SettingsScreen() {
 }
 
 export function NetworkScreen({ cfg }) {
-  const { pop } = useContext(AppCtx);
+  const { pop, ck } = useContext(AppCtx);
   const [res, setRes] = useState({});
+  const [cloud, setCloud] = useState(null);
   const [running, setRunning] = useState(false);
-  const run = async () => { setRunning(true); setRes({}); await Promise.all(PROBES.map(async (p) => { const r = await runProbe(p, cfg); setRes((x) => ({ ...x, [p.name]: r })); })); setRunning(false); };
+  const run = async () => {
+    setRunning(true); setRes({}); setCloud(null);
+    const probeCloud = async () => {
+      if (!ck) return setCloud({ ok: false, msg: 'Needs one sign-in on a normal network first' });
+      const t0 = Date.now();
+      try { const recs = await ckLookup(ck, ['meta'], 12000); const has = recs[0] && recs[0].fields && recs[0].fields.json; setCloud({ ok: true, msg: `OK · ${Date.now() - t0} ms · ${has ? 'library published' : 'library not published yet'}` }); }
+      catch (e) { setCloud({ ok: false, msg: String(e.message || 'blocked').slice(0, 60) }); }
+    };
+    await Promise.all([probeCloud(), ...PROBES.map(async (p) => { const r = await runProbe(p, cfg); setRes((x) => ({ ...x, [p.name]: r })); })]);
+    setRunning(false);
+  };
   const done = Object.keys(res).length === PROBES.length;
   const ok = (g) => PROBES.filter((p) => p.group === g).some((p) => res[p.name]?.ok);
   const verdict = !done ? '' : res[PROBES[0].name]?.ok ? 'Your bot server is reachable here, so the app syncs fully, files included.' : ok('Apple') ? 'The bot server is blocked, but Apple/iCloud is reachable.' : 'Only push may get through here. Have the iPad iMessage you the Homework zip, then Share it to this app.';
@@ -417,8 +437,13 @@ export function NetworkScreen({ cfg }) {
             </View>
           );
         })}
-        {!!verdict && <View style={s.verdict}><Text style={{ color: C.text, fontSize: 15 }}>{verdict}</Text></View>}
-        {done && <Text selectable style={[s.rowSub, { marginTop: 12 }]}>{'Report for Claude: ' + PROBES.map((p) => `${p.name}=${res[p.name]?.ok ? 'OK' : 'blocked'}`).join(', ')}</Text>}
+        <View style={[s.probe, { borderColor: C.blue }]}>
+        <View style={[s.dot, { backgroundColor: !cloud ? C.line : cloud.ok ? C.green : C.red }]} />
+        <View style={{ flex: 1 }}><Text style={s.attachName}>iCloud library (the real test)</Text><Text style={s.rowSub}>Reads the library through Apple, with no bot</Text></View>
+        <Text style={[s.rowSub, { color: !cloud ? C.sub : cloud.ok ? C.green : C.red, maxWidth: 150, textAlign: 'right' }]}>{!cloud ? (running ? '…' : '—') : cloud.msg}</Text>
+      </View>
+      {!!verdict && <View style={s.verdict}><Text style={{ color: C.text, fontSize: 15 }}>{verdict}</Text></View>}
+        {done && <Text selectable style={[s.rowSub, { marginTop: 12 }]}>{'Report for Claude: ' + PROBES.map((p) => `${p.name}=${res[p.name]?.ok ? 'OK' : 'blocked'}`).join(', ') + `, iCloud library read=${cloud ? (cloud.ok ? 'OK' : 'FAILED ' + cloud.msg) : '...'}`}</Text>}
       </ScrollView>
     </View>
   );

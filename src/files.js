@@ -24,6 +24,17 @@ export async function saveLocal(uri, name) {
   return dest;
 }
 
+/** Saves a base64 string as a file in the app's storage (what comes back from iCloud). */
+export async function saveBase64(b64, name) {
+  if (Platform.OS === 'web') return 'data:application/octet-stream;base64,' + b64;
+  const FS = require('expo-file-system/legacy');
+  const dir = FS.documentDirectory + 'attachments/';
+  await FS.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
+  const dest = dir + Date.now() + '-' + name.replace(/[^\w.\- ]+/g, '_');
+  await FS.writeAsStringAsync(dest, b64, { encoding: 'base64' });
+  return dest;
+}
+
 export async function fileSize(path) {
   if (Platform.OS === 'web') return 0;
   try { const info = await require('expo-file-system/legacy').getInfoAsync(path); return info.exists ? info.size || 0 : 0; } catch { return 0; }
