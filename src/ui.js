@@ -36,6 +36,15 @@ export function postedLabel(item) {
 // "P3 BIOLOGY H 2026-27 P3" -> "P3 BIOLOGY H": one name per class whichever device or zip it came from.
 export const niceCourse = (s) => (String(s || '').replace(/\s*20\d{2}-\d{2}.*$/, '').trim() || String(s || 'Other').trim());
 
+/** When the bot added it to your library (its upload time), e.g. "Added today, 8:12 AM". */
+export function addedDetail(item) {
+  const ms = item.created_at;
+  if (!ms) return '';
+  const days = Math.floor((startOfToday() - new Date(ms).setHours(0, 0, 0, 0)) / DAY);
+  const day = days <= 0 ? 'today' : days === 1 ? 'yesterday' : new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return 'Added ' + day + ', ' + new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
 /** When it was posted on Google Classroom, with the clock time whenever Classroom gave one. */
 export function postedDetail(item) {
   const t = String(item.posted_text || '').trim();

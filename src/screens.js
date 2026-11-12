@@ -4,7 +4,7 @@ import { WebView } from 'react-native-webview';
 import { C, PROBES, courseColor, runProbe } from './lib';
 import { downloadFile, openFile } from './files';
 import { AppCtx } from './ctx';
-import { BUCKETS, Icon, agoLabel, inCheckHours, nextCheckAt, whenLabel, SectionHeader, WorkRow, bucketOf, isWork, kindOf, niceCourse, postedDetail, postedLabel, shortDue, statusOf, st } from './ui';
+import { BUCKETS, Icon, addedDetail, agoLabel, inCheckHours, nextCheckAt, whenLabel, SectionHeader, WorkRow, bucketOf, isWork, kindOf, niceCourse, postedDetail, postedLabel, shortDue, statusOf, st } from './ui';
 
 export const Btn = ({ label, onPress, kind = 'solid', disabled, icon }) => (
   <Pressable onPress={onPress} disabled={disabled} style={[s.btn, kind === 'ghost' && s.btnGhost, kind === 'outline' && s.btnOutline, disabled && { opacity: 0.5 }]}>
@@ -204,7 +204,7 @@ export function ItemScreen({ id }) {
           <View style={[st.rowIcon, { backgroundColor: color, width: 46, height: 46, borderRadius: 23 }]}><Icon n={work ? 'document-text' : 'book'} s={24} c="#fff" /></View>
           <View style={{ flex: 1 }}>
             <Text style={[s.itemTitle, { color }]}>{item.title}</Text>
-            <Text style={s.itemMeta}>{postedDetail(item) || postedLabel(item)} · Google Classroom</Text>
+            <Text style={s.itemMeta}>{postedDetail(item) || postedLabel(item)} · Google Classroom{addedDetail(item) ? ' · ' + addedDetail(item) : ''}</Text>
           </View>
         </View>
         {work && (
@@ -320,7 +320,8 @@ export function WhatsNew({ fresh, onClose, onOpen }) {
                 {g.list.map((i) => (
                   <Pressable key={i.id} onPress={() => onOpen(i)} style={s.sheetRow}>
                     <Text style={s.sheetItem} numberOfLines={2}>{i.title}</Text>
-                    <Text style={s.sheetPosted}>{postedDetail(i) || 'Posted recently'}{isWork(i) && i.dueAt ? ' · due ' + shortDue(i) : ''}</Text>
+                    <Text style={s.sheetPosted}>{postedDetail(i) || 'Posted recently'} · on Google Classroom</Text>
+                    <Text style={s.sheetAdded}>{addedDetail(i)} · uploaded to your library{isWork(i) && i.dueAt ? ' · due ' + shortDue(i) : ''}</Text>
                   </Pressable>
                 ))}
               </View>
@@ -483,6 +484,7 @@ const s = StyleSheet.create({
   sheetHead: { fontSize: 15, fontWeight: '700' },
   sheetRow: { paddingVertical: 9, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line },
   sheetItem: { fontSize: 15, color: C.text, fontWeight: '500' },
+  sheetAdded: { fontSize: 12.5, color: C.blue, marginTop: 1, fontWeight: '500' },
   sheetPosted: { fontSize: 12.5, color: C.sub, marginTop: 2 },
   notice: { position: 'absolute', left: 16, right: 16, bottom: 86, backgroundColor: '#323232', borderRadius: 8, paddingHorizontal: 16, paddingVertical: 13, elevation: 6 },
   noticeTxt: { color: '#fff', fontSize: 14 },
