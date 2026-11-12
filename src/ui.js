@@ -49,6 +49,41 @@ export function postedDetail(item) {
   return 'Posted ' + day + time;
 }
 
+// The PC checker's schedule: every 10 minutes on school days, 8:00 am to 2:30 pm New York time.
+export const CHECK_EVERY = 10, CHECK_OPEN = 8 * 60, CHECK_CLOSE = 14 * 60 + 30;
+function etParts(ms) {
+  const p = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', hour: 'numeric', minute: 'numeric', hour12: false }).formatToParts(ms);
+  const g = (k) => p.find((x) => x.type === k)?.value || '';
+  return { weekday: !['Sat', 'Sun'].includes(g('weekday')), mins: (Number(g('hour')) % 24) * 60 + Number(g('minute')), wd: g('weekday') };
+}
+export function inCheckHours(ms = Date.now()) { const e = etParts(ms); return e.weekday && e.mins >= CHECK_OPEN && e.mins <= CHECK_CLOSE; }
+/** When the next check is due (a timestamp), from the schedule alone. */
+export function nextCheckAt(now = Date.now()) {
+  const { weekday, mins } = etParts(now);
+  const floor = now - (now % 60000);
+  if (weekday && mins < CHECK_OPEN) return floor + (CHECK_OPEN - mins) * 60000;
+  if (weekday && mins <= CHECK_CLOSE) {
+    const mark = (Math.floor(mins / CHECK_EVERY) + 1) * CHECK_EVERY;
+    if (mark <= CHECK_CLOSE) return floor + (mark - mins) * 60000;
+  }
+  let days = 1;
+  while (days < 7 && !etParts(now + days * 86400000).weekday) days++;
+  return floor + days * 86400000 + (CHECK_OPEN - mins) * 60000;
+}
+/** "8:30 AM", "Tomorrow, 8:00 AM", "Mon, 8:00 AM". */
+export function whenLabel(ms) {
+  if (!ms) return '';
+  const time = new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const days = Math.round((new Date(ms).setHours(0, 0, 0, 0) - startOfToday()) / DAY);
+  if (days <= 0) return time;
+  if (days === 1) return 'Tomorrow, ' + time;
+  return new Date(ms).toLocaleDateString([], { weekday: 'short' }) + ', ' + time;
+}
+export function agoLabel(ms, now = Date.now()) {
+  const m = Math.max(0, Math.round((now - ms) / 60000));
+  return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : Math.round(m / 60) + ' h ago';
+}
+
 export const BUCKETS = ['Overdue', 'This week', 'Next week', 'Later', 'No due date'];
 export function bucketOf(i) {
   if (!i.dueAt) return 'No due date';

@@ -27,6 +27,7 @@ function Main() {
   const [incoming, setIncoming] = useState(null);
   const [notice, setNotice] = useState('');
   const [fresh, setFresh] = useState([]);
+  const [checkInfo, setCheckInfo] = useState(null);
   const [ready, setReady] = useState(false);
   const api = useMemo(() => makeApi(cfg), [cfg]);
 
@@ -109,6 +110,7 @@ function Main() {
       if (known.size && brandNew.length) setFresh(brandNew);
       merge(got, true);
       got.forEach((it) => { if (it.dueAt && !it.submitted) scheduleReminders(it); else if (it.submitted) cancelReminders(it); });
+      try { setCheckInfo(await api.status()); } catch { /* the banner just keeps its last values */ }
       lastSyncRef.current = got.reduce((m, i) => Math.max(m, i.updated_at || 0), lastSyncRef.current); save('lastSync', lastSyncRef.current);
       setStatus(`Synced ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${got.length ? ` · ${got.length} updated` : ''}`);
     } catch (e) {
@@ -200,11 +202,11 @@ function Main() {
 
   const goTab = (k) => { setStack([]); setTab(k); };
   const ctx = useMemo(() => ({
-    items, cfg, api, saved, onSaved, status, refreshing, refresh: sync, toggleSubmitted, pickAndUpload, shareLibrary, onAuth,
+    items, cfg, api, saved, onSaved, status, refreshing, checkInfo, refresh: sync, toggleSubmitted, pickAndUpload, shareLibrary, onAuth,
     onSignOut: () => setCfg({ ...cfg, token: '' }),
     openPreview: setPreview, openClass: (name) => push({ t: 'class', name }), openItem: (id) => push({ t: 'item', id }),
     openNetwork: () => push({ t: 'network' }), pop,
-  }), [items, cfg, api, saved, onSaved, status, refreshing, sync, toggleSubmitted, pickAndUpload, shareLibrary, onAuth, push, pop]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [items, cfg, api, saved, onSaved, status, refreshing, checkInfo, sync, toggleSubmitted, pickAndUpload, shareLibrary, onAuth, push, pop]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const top = stack[stack.length - 1];
   const dueSoon = items.filter((i) => isWork(i) && !i.submitted && i.dueAt && i.dueAt < Date.now() + 2 * 86400000).length;

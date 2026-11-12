@@ -1,10 +1,10 @@
-import React, { useContext, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { C, PROBES, courseColor, runProbe } from './lib';
 import { downloadFile, openFile } from './files';
 import { AppCtx } from './ctx';
-import { BUCKETS, Icon, SectionHeader, WorkRow, bucketOf, isWork, kindOf, niceCourse, postedDetail, postedLabel, shortDue, statusOf, st } from './ui';
+import { BUCKETS, Icon, agoLabel, inCheckHours, nextCheckAt, whenLabel, SectionHeader, WorkRow, bucketOf, isWork, kindOf, niceCourse, postedDetail, postedLabel, shortDue, statusOf, st } from './ui';
 
 export const Btn = ({ label, onPress, kind = 'solid', disabled, icon }) => (
   <Pressable onPress={onPress} disabled={disabled} style={[s.btn, kind === 'ghost' && s.btnGhost, kind === 'outline' && s.btnOutline, disabled && { opacity: 0.5 }]}>
@@ -23,6 +23,29 @@ export function AppBar({ title, subtitle, color, onBack, right }) {
         {!!subtitle && <Text style={[s.barSub, onColor && { color: '#ffffffcc' }]} numberOfLines={1}>{subtitle}</Text>}
       </View>
       {right}
+    </View>
+  );
+}
+
+/* ---------- "Next check" banner ---------- */
+function CheckBanner() {
+  const { checkInfo } = useContext(AppCtx);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(t); }, []);
+  const seen = checkInfo?.pcSeen || 0;
+  const quiet = inCheckHours(now) && (!seen || now - seen > 25 * 60 * 1000);
+  return (
+    <View style={[s.checkCard, quiet && s.checkWarn]}>
+      <Icon n={quiet ? 'warning-outline' : 'time-outline'} s={22} c={quiet ? '#b45309' : C.blue} />
+      <View style={{ flex: 1 }}>
+        <Text style={s.checkMain}>Next check: {whenLabel(nextCheckAt(now))}</Text>
+        <Text style={s.checkSub}>
+          {seen ? `Last check ${whenLabel(seen)} (${agoLabel(seen, now)})` : 'Waiting for the first check'}
+          {checkInfo?.lastNew ? ` · newest post found ${whenLabel(checkInfo.lastNew)}` : ''}
+        </Text>
+        <Text style={s.checkSub}>Every 10 min on school days, 8:00 AM–2:30 PM</Text>
+        {quiet && <Text style={s.checkAlert}>The checker hasn’t reported lately. Make sure the computer is on and awake.</Text>}
+      </View>
     </View>
   );
 }
@@ -55,6 +78,7 @@ export function ClassesScreen() {
         <TextInput value={q} onChangeText={setQ} placeholder="Search all your work" placeholderTextColor={C.sub} style={s.search} autoCorrect={false} />
         {!!q && <Pressable onPress={() => setQ('')} hitSlop={10}><Icon n="close-circle" s={18} c={C.sub} /></Pressable>}
       </View>
+      {!hits && <CheckBanner />}
       {hits ? (
         <FlatList data={hits} keyExtractor={(i) => i.id} keyboardShouldPersistTaps="handled"
           ListEmptyComponent={<Text style={s.empty}>No matches.</Text>}
@@ -408,6 +432,11 @@ const s = StyleSheet.create({
   barBack: { marginLeft: -4 },
   barTitle: { fontSize: 20, fontWeight: '500', color: C.text },
   barSub: { fontSize: 12, color: C.sub, marginTop: 1 },
+  checkCard: { flexDirection: 'row', gap: 12, alignItems: 'flex-start', marginHorizontal: 14, marginTop: 10, padding: 14, borderRadius: 12, backgroundColor: '#e8f0fe' },
+  checkWarn: { backgroundColor: '#fef3c7' },
+  checkMain: { fontSize: 15, fontWeight: '600', color: C.text },
+  checkSub: { fontSize: 12.5, color: C.sub, marginTop: 2 },
+  checkAlert: { fontSize: 12.5, color: '#92400e', marginTop: 6, fontWeight: '600' },
   searchWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, margin: 14, marginBottom: 2, paddingHorizontal: 14, height: 42, borderRadius: 21, backgroundColor: '#fff', borderWidth: 1, borderColor: C.line },
   search: { flex: 1, fontSize: 15, color: C.text, outlineStyle: 'none' },
   empty: { textAlign: 'center', color: C.sub, marginTop: 60, paddingHorizontal: 30, lineHeight: 21 },

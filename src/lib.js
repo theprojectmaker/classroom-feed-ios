@@ -45,6 +45,7 @@ export function makeApi(cfg) {
     register: (name, password, invite) => call('/acct/register', { method: 'POST', body: JSON.stringify({ name, password, invite }) }),
     login: (name, password) => call('/acct/login', { method: 'POST', body: JSON.stringify({ name, password }) }),
     items: (since = 0) => call(`/api/items?since=${since}`),
+    status: () => call('/api/status'),
     setSubmitted: (id, submitted) => call('/api/state', { method: 'POST', body: JSON.stringify({ id, submitted }) }),
     registerPush: (token) => call('/api/register-push', { method: 'POST', body: JSON.stringify({ token }) }),
     /** Uploads the finished file you made for an assignment; every signed-in device then gets it. */
