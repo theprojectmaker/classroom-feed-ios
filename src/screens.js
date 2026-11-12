@@ -43,7 +43,7 @@ function CheckBanner() {
           {seen ? `Last check ${whenLabel(seen)} (${agoLabel(seen, now)})` : 'Waiting for the first check'}
           {checkInfo?.lastNew ? ` · newest post found ${whenLabel(checkInfo.lastNew)}` : ''}
         </Text>
-        <Text style={s.checkSub}>Every 10 min on school days, 8:00 AM–2:30 PM</Text>
+        <Text style={s.checkSub}>Every 5 min on school days, 8:00 AM–2:30 PM</Text>
         {quiet && <Text style={s.checkAlert}>The checker hasn’t reported lately. Make sure the computer is on and awake.</Text>}
       </View>
     </View>

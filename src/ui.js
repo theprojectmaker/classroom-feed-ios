@@ -58,8 +58,8 @@ export function postedDetail(item) {
   return 'Posted ' + day + time;
 }
 
-// The PC checker's schedule: every 10 minutes on school days, 8:00 am to 2:30 pm New York time.
-export const CHECK_EVERY = 10, CHECK_OPEN = 8 * 60, CHECK_CLOSE = 14 * 60 + 30;
+// The PC checker's schedule: every 5 minutes on school days, 8:00 am to 2:30 pm New York time.
+export const CHECK_EVERY = 5, CHECK_OPEN = 8 * 60, CHECK_CLOSE = 14 * 60 + 30;
 function etParts(ms) {
   const p = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', hour: 'numeric', minute: 'numeric', hour12: false }).formatToParts(ms);
   const g = (k) => p.find((x) => x.type === k)?.value || '';
