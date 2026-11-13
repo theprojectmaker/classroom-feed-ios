@@ -198,7 +198,8 @@ function Main() {
     merge(imported, false);
     imported.forEach((it) => scheduleReminders(it));
     setStack([]); setTab('classes');
-    notify(`Imported ${imported.length} item${imported.length === 1 ? '' : 's'} into your classes.`);
+    const nf = imported.reduce((n, i) => n + (i.files || []).length, 0);
+    notify(`Imported ${imported.length} item${imported.length === 1 ? '' : 's'}${nf ? ` · ${nf} file${nf === 1 ? '' : 's'} saved offline` : ''}.`);
   }, [merge, notify]);
 
   // Files opened with Share → Classroom Feed: a Homework zip fills the library; anything else (e.g. from Quill) is your finished work.
