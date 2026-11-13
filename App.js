@@ -12,8 +12,9 @@ import { AppCtx } from './src/ctx';
 import { cloudLibrary, cloudFileBase64 } from './src/cloud';
 import { Icon, isWork, niceCourse } from './src/ui';
 import { AttachPicker, ClassScreen, ClassesScreen, ItemScreen, NetworkScreen, Notice, Preview, SettingsScreen, TodoScreen, WhatsNew } from './src/screens';
+import { AddModal, SearchScreen } from './src/extra';
 
-const NAV = [['classes', 'Classes', 'home'], ['todo', 'To-do', 'checkbox'], ['settings', 'Settings', 'settings']];
+const NAV = [['classes', 'Classes', 'home'], ['todo', 'To-do', 'checkbox'], ['find', 'Find', 'search'], ['settings', 'Settings', 'settings']];
 
 function Main() {
   const insets = useSafeAreaInsets();
@@ -27,6 +28,7 @@ function Main() {
   const [preview, setPreview] = useState(null);
   const [incoming, setIncoming] = useState(null);
   const [notice, setNotice] = useState('');
+  const [adding, setAdding] = useState(false);
   const [fresh, setFresh] = useState([]);
   const [checkInfo, setCheckInfo] = useState(null);
   const [ck, setCk] = useState(null); // read-only iCloud details, learned while the bot is reachable
@@ -166,9 +168,21 @@ function Main() {
     const updated = { ...item, submitted: !item.submitted };
     setItems((cur) => { const next = cur.map((i) => (i.id === item.id ? updated : i)); save('items', next); return next; });
     if (updated.submitted) cancelReminders(updated); else scheduleReminders(updated);
+    if (item.mine) return; // your own assignments live on this device only
     queueRef.current = [...queueRef.current.filter((q) => !(q.type === 'state' && q.id === item.id)), { type: 'state', id: item.id, submitted: updated.submitted }];
     persistQueue(); sync();
   }, [sync]);
+
+  /** Notes, steps, stars: saved on the device and never overwritten by a sync. */
+  const updateItem = useCallback((id, patch) => setItems((cur) => { const next = cur.map((i) => (i.id === id ? { ...i, ...patch } : i)); save('items', next); return next; }), []);
+  const deleteItem = useCallback((id) => setItems((cur) => { const next = cur.filter((i) => i.id !== id); save('items', next); return next; }), []);
+  const addItem = useCallback((d) => {
+    const now = Date.now();
+    const it = { id: 'mine-' + now, kind: d.kind === 'material' ? 'material' : 'assignment', course: niceCourse(d.course), title: d.title, body: d.body || '', due: '', dueAt: d.dueAt || 0, posted_at: now, created_at: now, updated_at: now, mine: true, submitted: false, files: [], url: '' };
+    setItems((cur) => { const next = [it, ...cur]; save('items', next); return next; });
+    if (it.dueAt) scheduleReminders(it);
+    setAdding(false); setStack([{ t: 'item', id: it.id }]); notify(`Added “${it.title}”`);
+  }, [notify]);
 
   /** Adds a finished file to an assignment (shown at once, uploaded when online). The same file is never added twice. */
   const uploadFor = useCallback(async (item, asset) => {
@@ -180,8 +194,9 @@ function Main() {
     const dupQueued = queueRef.current.some((q) => q.type === 'upload' && q.itemId === item.id && q.name === name);
     if (dupFile || dupQueued) { await removeLocal(local); notify(`“${name}” is already uploaded for this assignment.`); return; }
     const fileId = 'pending-' + Date.now();
-    const file = { id: fileId, name, size, local, origin: 'upload', pending: true };
+    const file = { id: fileId, name, size, local, origin: 'upload', pending: !cur.mine };
     setItems((c) => { const next = c.map((i) => (i.id === item.id ? { ...i, files: [...(i.files || []), file] } : i)); save('items', next); return next; });
+    if (cur.mine) { notify(`Added “${name}”`); return; } // your own assignment: the file stays on this device
     queueRef.current = [...queueRef.current, { type: 'upload', itemId: item.id, fileId, name, uri: local, mime: asset.mimeType }];
     persistQueue(); notify(`Added “${name}”${cfg.token ? ' · uploading' : ''}`); sync();
   }, [sync, notify, cfg.token]);
@@ -239,9 +254,10 @@ function Main() {
   const ctx = useMemo(() => ({
     items, cfg, api, saved, onSaved, status, refreshing, checkInfo, ck, refresh: sync, toggleSubmitted, pickAndUpload, shareLibrary, onAuth,
     onSignOut: () => setCfg({ ...cfg, token: '' }),
-    openPreview: setPreview, openClass: (name) => push({ t: 'class', name }), openItem: (id) => push({ t: 'item', id }),
+    updateItem, deleteItem, openAdd: () => setAdding(true),
+    openPreview: (file, list) => setPreview({ file, list: list && list.length ? list : [file] }), openClass: (name) => push({ t: 'class', name }), openItem: (id) => push({ t: 'item', id }),
     openNetwork: () => push({ t: 'network' }), pop,
-  }), [items, cfg, api, saved, onSaved, status, refreshing, checkInfo, ck, sync, toggleSubmitted, pickAndUpload, shareLibrary, onAuth, push, pop]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [items, cfg, api, saved, onSaved, status, refreshing, checkInfo, ck, sync, toggleSubmitted, pickAndUpload, shareLibrary, onAuth, push, pop, updateItem, deleteItem]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const top = stack[stack.length - 1];
   const dueSoon = items.filter((i) => isWork(i) && !i.submitted && i.dueAt && i.dueAt < Date.now() + 2 * 86400000).length;
@@ -255,8 +271,14 @@ function Main() {
             : top?.t === 'network' ? <NetworkScreen cfg={cfg} />
             : tab === 'classes' ? <ClassesScreen />
             : tab === 'todo' ? <TodoScreen />
+            : tab === 'find' ? <SearchScreen />
             : <SettingsScreen />}
         </View>
+        {!top && (tab === 'classes' || tab === 'todo') && (
+          <Pressable onPress={() => setAdding(true)} style={[s.fab, { bottom: 76 + Math.max(insets.bottom, 8) }]}>
+            <Icon n="add" s={30} c="#fff" />
+          </Pressable>
+        )}
         {!top && (
           <View style={[s.nav, { paddingBottom: Math.max(insets.bottom, 8) }]}>
             {NAV.map(([k, label, icon]) => {
@@ -275,7 +297,8 @@ function Main() {
         )}
         <Notice text={notice} />
         {fresh.length > 0 && <WhatsNew fresh={fresh} onClose={() => setFresh([])} onOpen={(it) => { setFresh([]); setTab('classes'); setStack([{ t: 'class', name: niceCourse(it.course) }, { t: 'item', id: it.id }]); }} />}
-        {preview && <Preview file={preview} onClose={() => setPreview(null)} />}
+        {preview && <Preview key={preview.file.id} file={preview.file} list={preview.list} onSwitch={(f) => setPreview({ ...preview, file: f })} onClose={() => setPreview(null)} />}
+        {adding && <AddModal classes={[...new Set(items.map((i) => i.course || 'Other'))].sort()} onSave={addItem} onClose={() => setAdding(false)} />}
         {incoming && <AttachPicker incoming={incoming} items={items} onClose={() => setIncoming(null)}
           onPick={(it) => { uploadFor(it, { uri: incoming.uri, name: incoming.name }); setIncoming(null); setStack([{ t: 'item', id: it.id }]); }} />}
       </View>
@@ -293,5 +316,6 @@ const s = StyleSheet.create({
   navPill: { paddingHorizontal: 20, paddingVertical: 4, borderRadius: 16 },
   navTxt: { fontSize: 12, color: C.sub },
   badge: { position: 'absolute', top: -2, right: 8, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  fab: { position: 'absolute', right: 18, width: 58, height: 58, borderRadius: 29, backgroundColor: C.blue, alignItems: 'center', justifyContent: 'center', elevation: 6, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 3 } },
   badgeTxt: { color: '#fff', fontSize: 10, fontWeight: '800' },
 });

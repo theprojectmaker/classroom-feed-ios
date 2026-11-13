@@ -7,26 +7,9 @@ import { ckLookup, cloudFileBase64 } from './cloud';
 import { AppCtx } from './ctx';
 import { BUCKETS, Icon, addedDetail, agoLabel, inCheckHours, nextCheckAt, whenLabel, SectionHeader, WorkRow, bucketOf, isWork, kindOf, niceCourse, postedDetail, postedLabel, shortDue, statusOf, st } from './ui';
 
-export const Btn = ({ label, onPress, kind = 'solid', disabled, icon }) => (
-  <Pressable onPress={onPress} disabled={disabled} style={[s.btn, kind === 'ghost' && s.btnGhost, kind === 'outline' && s.btnOutline, disabled && { opacity: 0.5 }]}>
-    {icon ? <Icon n={icon} s={18} c={kind === 'solid' ? '#fff' : C.blue} /> : null}
-    <Text style={[s.btnTxt, kind !== 'solid' && { color: C.blue }]}>{label}</Text>
-  </Pressable>
-);
-
-export function AppBar({ title, subtitle, color, onBack, right }) {
-  const onColor = !!color;
-  return (
-    <View style={[s.bar, onColor && { backgroundColor: color, borderBottomWidth: 0 }]}>
-      {onBack ? <Pressable onPress={onBack} hitSlop={12} style={s.barBack}><Icon n="arrow-back" s={24} c={onColor ? '#fff' : C.text} /></Pressable> : null}
-      <View style={{ flex: 1 }}>
-        <Text style={[s.barTitle, onColor && { color: '#fff' }]} numberOfLines={1}>{title}</Text>
-        {!!subtitle && <Text style={[s.barSub, onColor && { color: '#ffffffcc' }]} numberOfLines={1}>{subtitle}</Text>}
-      </View>
-      {right}
-    </View>
-  );
-}
+import { AppBar, Btn } from './widgets';
+import { NotesCard, RichText, StepsCard, TodayCard } from './extra';
+export { AppBar, Btn };
 
 /* ---------- "Next check" banner ---------- */
 function CheckBanner() {
@@ -79,7 +62,6 @@ export function ClassesScreen() {
         <TextInput value={q} onChangeText={setQ} placeholder="Search all your work" placeholderTextColor={C.sub} style={s.search} autoCorrect={false} />
         {!!q && <Pressable onPress={() => setQ('')} hitSlop={10}><Icon n="close-circle" s={18} c={C.sub} /></Pressable>}
       </View>
-      {!hits && <CheckBanner />}
       {hits ? (
         <FlatList data={hits} keyExtractor={(i) => i.id} keyboardShouldPersistTaps="handled"
           ListEmptyComponent={<Text style={s.empty}>No matches.</Text>}
@@ -89,6 +71,7 @@ export function ClassesScreen() {
           columnWrapperStyle={cols > 1 ? { gap: 14 } : undefined}
           contentContainerStyle={{ padding: 14, gap: 14, paddingBottom: 30 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
+          ListHeaderComponent={<View style={{ gap: 12 }}>{items.length > 0 && <TodayCard />}<CheckBanner /></View>}
           ListEmptyComponent={<Text style={s.empty}>No classes yet.{'\n'}Sign in under Settings and your classes appear here, or open a Homework zip from Messages (Share → Classroom Feed).</Text>}
           renderItem={({ item: c }) => {
             if (c.pad) return <View style={{ flex: 1 }} />;
@@ -188,7 +171,7 @@ export function ClassScreen({ name }) {
 
 /* ---------- One assignment / material ---------- */
 export function ItemScreen({ id }) {
-  const { items, pop, toggleSubmitted, pickAndUpload, openPreview } = useContext(AppCtx);
+  const { items, pop, toggleSubmitted, pickAndUpload, openPreview, updateItem, deleteItem } = useContext(AppCtx);
   const item = items.find((i) => i.id === id);
   if (!item) return <View style={{ flex: 1 }}><AppBar title="Not found" onBack={pop} /></View>;
   const color = courseColor(item.course);
@@ -199,7 +182,12 @@ export function ItemScreen({ id }) {
   const mine = files.filter((f) => f.origin === 'upload');
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
-      <AppBar title={item.course} color={color} onBack={pop} />
+      <AppBar title={item.course} color={color} onBack={pop} right={(
+        <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center' }}>
+          <Pressable onPress={() => updateItem(item.id, { starred: !item.starred })} hitSlop={10}><Icon n={item.starred ? 'star' : 'star-outline'} s={24} c="#fff" /></Pressable>
+          {item.mine && <Pressable onPress={() => { deleteItem(item.id); pop(); }} hitSlop={10}><Icon n="trash-outline" s={22} c="#fff" /></Pressable>}
+        </View>
+      )} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         <View style={s.itemHead}>
           <View style={[st.rowIcon, { backgroundColor: color, width: 46, height: 46, borderRadius: 23 }]}><Icon n={work ? 'document-text' : 'book'} s={24} c="#fff" /></View>
@@ -215,7 +203,7 @@ export function ItemScreen({ id }) {
           </View>
         )}
         <View style={s.hr} />
-        {!!item.body && <Text style={s.itemBody}>{item.body}</Text>}
+        {!!item.body && <RichText text={item.body} />}
         {!item.body && <Text style={[s.itemBody, { color: C.sub }]}>No instructions.</Text>}
         {!!(item.grade || item.status || item.comments || item.changeNote || item.change_note) && (
           <View style={{ marginHorizontal: 16, marginTop: 14, padding: 14, borderRadius: 12, backgroundColor: '#e8f0fe' }}>
@@ -228,9 +216,12 @@ export function ItemScreen({ id }) {
         {theirs.length > 0 && (<>
           <Text style={s.itemSection}>Attachments</Text>
           <View style={{ paddingHorizontal: 16, gap: 10 }}>
-            {theirs.map((f) => <Attachment key={f.id} f={f} onPress={() => openPreview(f)} />)}
+            {theirs.map((f) => <Attachment key={f.id} f={f} onPress={() => openPreview(f, files)} />)}
           </View>
         </>)}
+
+        <StepsCard item={item} />
+        <NotesCard item={item} />
 
         {work && (
           <View style={s.workCard}>
@@ -238,7 +229,7 @@ export function ItemScreen({ id }) {
               <Text style={s.workTitle}>Your work</Text>
               <Text style={[s.workStatus, status === 'done' && { color: C.green }, status === 'overdue' && { color: C.red }]}>{status === 'done' ? 'Done' : status === 'overdue' ? 'Overdue' : 'Assigned'}</Text>
             </View>
-            {mine.map((f) => <Attachment key={f.id} f={f} mine onPress={() => openPreview(f)} />)}
+            {mine.map((f) => <Attachment key={f.id} f={f} mine onPress={() => openPreview(f, files)} />)}
             <View style={{ gap: 10, marginTop: mine.length ? 10 : 0 }}>
               <Btn kind="outline" icon="add" label="Add file" onPress={() => pickAndUpload(item)} />
               <Btn icon={status === 'done' ? 'arrow-undo' : 'checkmark'} label={status === 'done' ? 'Unmark as done' : 'Mark as done'} onPress={() => toggleSubmitted(item)} />
@@ -269,8 +260,10 @@ function Attachment({ f, onPress, mine }) {
 }
 
 /* ---------- Preview / attach / notice ---------- */
-export function Preview({ file, onClose }) {
+export function Preview({ file, list = [], onSwitch, onClose }) {
   const { api, saved, onSaved, ck } = useContext(AppCtx);
+  const idx = Math.max(0, list.findIndex((f) => f.id === file.id));
+  const go = (d) => { const n = list[idx + d]; if (n && onSwitch) onSwitch(n); };
   const [busy, setBusy] = useState(false);
   const [cloudErr, setCloudErr] = useState('');
   const rawLocal = file.local || saved[file.id];
@@ -291,7 +284,14 @@ export function Preview({ file, onClose }) {
       <View style={{ flex: 1, backgroundColor: '#fff' }}>
         <View style={s.previewBar}>
           <Pressable onPress={onClose} hitSlop={12}><Icon n="close" s={26} /></Pressable>
-          <Text style={[s.attachName, { flex: 1, textAlign: 'center' }]} numberOfLines={1}>{file.name}</Text>
+          <View style={{ flex: 1, alignItems: 'center' }}>
+            <Text style={s.attachName} numberOfLines={1}>{file.name}</Text>
+            <Text style={s.rowSub} numberOfLines={1}>{(file.name.split('.').pop() || 'file').toUpperCase()} · {Math.max(1, Math.round((file.size || 0) / 1024))} KB · {local ? 'saved offline' : 'needs internet'}{list.length > 1 ? ` · ${idx + 1} of ${list.length}` : ''}</Text>
+          </View>
+          {list.length > 1 && (<>
+            <Pressable onPress={() => go(-1)} disabled={idx === 0} hitSlop={8}><Icon n="chevron-back" s={26} c={idx === 0 ? C.line : C.text} /></Pressable>
+            <Pressable onPress={() => go(1)} disabled={idx >= list.length - 1} hitSlop={8}><Icon n="chevron-forward" s={26} c={idx >= list.length - 1 ? C.line : C.text} /></Pressable>
+          </>)}
           {busy ? <ActivityIndicator color={C.blue} /> : local ? <Btn kind="ghost" label="Share" onPress={() => openFile(local)} /> : <Btn kind="ghost" label="Save" onPress={doSave} />}
         </View>
         {Platform.OS === 'web'
@@ -469,7 +469,7 @@ const s = StyleSheet.create({
   barBack: { marginLeft: -4 },
   barTitle: { fontSize: 20, fontWeight: '500', color: C.text },
   barSub: { fontSize: 12, color: C.sub, marginTop: 1 },
-  checkCard: { flexDirection: 'row', gap: 12, alignItems: 'flex-start', marginHorizontal: 14, marginTop: 10, padding: 14, borderRadius: 12, backgroundColor: '#e8f0fe' },
+  checkCard: { flexDirection: 'row', gap: 12, alignItems: 'flex-start', padding: 14, borderRadius: 12, backgroundColor: '#e8f0fe' },
   checkWarn: { backgroundColor: '#fef3c7' },
   checkMain: { fontSize: 15, fontWeight: '600', color: C.text },
   checkSub: { fontSize: 12.5, color: C.sub, marginTop: 2 },

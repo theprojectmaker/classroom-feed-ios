@@ -93,12 +93,12 @@ export function agoLabel(ms, now = Date.now()) {
   return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : Math.round(m / 60) + ' h ago';
 }
 
-export const BUCKETS = ['Overdue', 'This week', 'Next week', 'Later', 'No due date'];
+export const BUCKETS = ['Overdue', 'Today', 'Tomorrow', 'This week', 'Next week', 'Later', 'No due date'];
 export function bucketOf(i) {
   if (!i.dueAt) return 'No due date';
   if (i.dueAt < Date.now()) return 'Overdue';
   const days = Math.floor((i.dueAt - startOfToday()) / DAY);
-  return days < 0 ? 'Overdue' : days < 7 ? 'This week' : days < 14 ? 'Next week' : 'Later';
+  return days < 0 ? 'Overdue' : days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : days < 7 ? 'This week' : days < 14 ? 'Next week' : 'Later';
 }
 
 /** Round coloured icon used on every list row (assignment / material / announcement). */
@@ -118,6 +118,9 @@ export function WorkRow({ item, color, onPress, showCourse }) {
         <Text style={[st.rowTitle, item.submitted && { color: C.sub }]} numberOfLines={2}>{item.title}</Text>
         <Text style={st.rowSub} numberOfLines={1}>{showCourse ? `${item.course} · ` : ''}{sub}</Text>
       </View>
+      {!!(item.changeNote || item.change_note) && (item.changed_at || 0) > Date.now() - 7 * DAY && <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: C.red }} />}
+      {!!item.grade && <Text style={st.grade}>{item.grade}</Text>}
+      {item.starred && <Icon n="star" s={16} c={C.amber} />}
       {isWork(item) && status === 'done' && <Icon n="checkmark-circle" s={22} c={C.green} />}
       {isWork(item) && status === 'overdue' && <Text style={st.overdue}>Overdue</Text>}
       {(item.files || []).length > 0 && status !== 'overdue' && status !== 'done' && <Icon n="attach" s={18} c={C.sub} />}
@@ -140,6 +143,7 @@ export const st = StyleSheet.create({
   rowTitle: { fontSize: 15, color: C.text, fontWeight: '500' },
   rowSub: { fontSize: 12.5, color: C.sub, marginTop: 2 },
   overdue: { color: C.red, fontSize: 12, fontWeight: '700' },
+  grade: { color: C.green, fontSize: 12.5, fontWeight: '700', backgroundColor: '#e6f4ea', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, overflow: 'hidden' },
   secHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 18, paddingBottom: 8, backgroundColor: C.bg },
   secTitle: { fontSize: 14, fontWeight: '700', color: C.blueDark },
   secCount: { fontSize: 13, color: C.sub },
