@@ -28,6 +28,7 @@ export function parseZip(bytes) {
         created_at: it.addedAt || now,
         body: it.body || '',
         url: it.url || '',
+        grade: it.grade || '', status: it.status || '', comments: it.comments || '', changeNote: it.changeNote || '',
         files: [],
         fileData: (it.files || []).map((f) => ({ name: f.name, bytes: byName[prefix + f.path] })).filter((f) => f.bytes),
       })),

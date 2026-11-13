@@ -217,6 +217,13 @@ export function ItemScreen({ id }) {
         <View style={s.hr} />
         {!!item.body && <Text style={s.itemBody}>{item.body}</Text>}
         {!item.body && <Text style={[s.itemBody, { color: C.sub }]}>No instructions.</Text>}
+        {!!(item.grade || item.status || item.comments || item.changeNote || item.change_note) && (
+          <View style={{ marginHorizontal: 16, marginTop: 14, padding: 14, borderRadius: 12, backgroundColor: '#e8f0fe' }}>
+            {!!(item.changeNote || item.change_note) && <Text style={{ color: C.red, fontWeight: '700', marginBottom: 6 }}>Updated: {item.changeNote || item.change_note}</Text>}
+            <Text style={{ fontWeight: '700', color: C.text }}>{item.grade ? `Grade ${item.grade}` : 'Not graded yet'}{item.status ? ` · ${item.status}` : ''}</Text>
+            {!!item.comments && <><Text style={{ fontWeight: '700', color: C.text, marginTop: 10 }}>Private comments</Text><Text style={{ color: C.text, marginTop: 4, lineHeight: 20 }}>{item.comments}</Text></>}
+          </View>
+        )}
 
         {theirs.length > 0 && (<>
           <Text style={s.itemSection}>Attachments</Text>
