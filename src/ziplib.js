@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import { zipSync, strToU8 } from 'fflate';
 import { parseZip } from './zipparse';
+import { resolveLocal } from './files';
 
 const FS = () => require('expo-file-system/legacy');
 const toBytes = (b64) => { const bin = atob(b64); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
@@ -40,7 +41,7 @@ export async function exportLibraryZip(items) {
     for (const f of it.files || []) {
       if (!f.local) continue;
       try {
-        const b64 = await fs.readAsStringAsync(f.local, { encoding: 'base64' });
+        const b64 = await fs.readAsStringAsync(resolveLocal(f.local),{ encoding: 'base64' });
         entries[dir + '/' + safe(f.name)] = [toBytes(b64), { level: 0 }];
         mf.push({ name: f.name, path: dir + '/' + safe(f.name), size: f.size || 0, mime: '' });
       } catch {}

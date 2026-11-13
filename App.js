@@ -5,11 +5,11 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import * as Notifications from 'expo-notifications';
 import * as DocumentPicker from 'expo-document-picker';
 import { C, DEFAULTS, load, makeApi, save } from './src/lib';
-import { fileSize, openFile, saveLocal, removeLocal } from './src/files';
+import { fileSize, openFile, saveLocal, removeLocal, resolveLocal, fileExists, downloadFile, saveBase64 } from './src/files';
 import { exportLibraryZip, importZipFile } from './src/ziplib';
 import { cancelReminders, scheduleReminders } from './src/remind';
 import { AppCtx } from './src/ctx';
-import { cloudLibrary } from './src/cloud';
+import { cloudLibrary, cloudFileBase64 } from './src/cloud';
 import { Icon, isWork, niceCourse } from './src/ui';
 import { AttachPicker, ClassScreen, ClassesScreen, ItemScreen, NetworkScreen, Notice, Preview, SettingsScreen, TodoScreen, WhatsNew } from './src/screens';
 
@@ -85,7 +85,7 @@ function Main() {
       try {
         if (q.type === 'state') await api.setSubmitted(q.id, q.submitted);
         else if (q.type === 'upload') {
-          const r = await api.upload(q.itemId, q.name, q.uri, q.mime);
+          const r = await api.upload(q.itemId, q.name, resolveLocal(q.uri), q.mime);
           setItems((cur) => { const next = cur.map((i) => {
             if (i.id !== q.itemId) return i;
             const files = i.files || [];
@@ -101,6 +101,27 @@ function Main() {
       queueRef.current.shift(); persistQueue();
     }
   }, [api]);
+
+  // Every attachment is copied onto the device as soon as it is seen, so it opens with no connection.
+  const savedRef = useRef({}); savedRef.current = saved;
+  const autoSaving = useRef(false);
+  const autoSave = useCallback(async (viaCloud) => {
+    if (Platform.OS === 'web' || autoSaving.current) return;
+    autoSaving.current = true;
+    try {
+      for (const it of itemsRef.current) {
+        for (const f of it.files || []) {
+          if (f.pending || f.local || String(f.id).startsWith('local-')) continue;
+          const cur = savedRef.current[f.id];
+          if (cur && await fileExists(cur)) continue;
+          try {
+            const p = viaCloud ? await saveBase64(await cloudFileBase64(ckRef.current, f), f.name, f.id) : await downloadFile(api.fileUrl(f.id), f.name, f.id);
+            onSaved(f.id, p);
+          } catch (e) { if (!viaCloud || e.status === 401) return; }
+        }
+      }
+    } finally { autoSaving.current = false; }
+  }, [api, onSaved]);
 
   const applyIncoming = useCallback((got) => {
     const known = new Set(itemsRef.current.map((i) => i.id));
@@ -121,16 +142,17 @@ function Main() {
       try { const st = await api.status(); setCheckInfo(st); if (st.ck) { setCk(st.ck); save('ck', st.ck); } } catch { /* the banner just keeps its last values */ }
       lastSyncRef.current = got.reduce((m, i) => Math.max(m, i.updated_at || 0), lastSyncRef.current); save('lastSync', lastSyncRef.current);
       setStatus(`Synced ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${got.length ? ` · ${got.length} updated` : ''}`);
+      setTimeout(() => autoSave(false), 600);
     } catch (e) {
       if (e.status === 401) { setCfg({ ...cfg, token: '' }); setStatus('Please sign in again.'); }
       else if (ckRef.current && await (async () => {
         // The bot can't be reached (restricted Wi-Fi): read the library from iCloud instead.
-        try { const lib = await cloudLibrary(ckRef.current); applyIncoming(lib.items); setStatus(`Synced from iCloud ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · this network blocks the bot`); return true; } catch { return false; }
+        try { const lib = await cloudLibrary(ckRef.current); applyIncoming(lib.items); setStatus(`Synced from iCloud ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · this network blocks the bot`); setTimeout(() => autoSave(true), 600); return true; } catch { return false; }
       })()) { /* status already set */ }
       else setStatus(queueRef.current.length ? `Offline · ${queueRef.current.length} change${queueRef.current.length > 1 ? 's' : ''} will send when you reconnect` : 'Offline · showing what’s saved on this device');
     }
     syncing.current = false; setRefreshing(false);
-  }, [api, cfg, flushQueue, merge, applyIncoming]);
+  }, [api, cfg, flushQueue, merge, applyIncoming, autoSave]);
 
   // Sync on launch, when the app comes to the front, and every minute while open (reconnects are picked up automatically).
   useEffect(() => { if (ready && cfg.token) sync(); }, [ready, cfg.token]); // eslint-disable-line react-hooks/exhaustive-deps

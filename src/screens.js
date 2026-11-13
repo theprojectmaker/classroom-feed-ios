@@ -2,7 +2,7 @@ import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { C, PROBES, courseColor, runProbe } from './lib';
-import { downloadFile, openFile, saveBase64 } from './files';
+import { downloadFile, openFile, saveBase64, resolveLocal, fileExists } from './files';
 import { ckLookup, cloudFileBase64 } from './cloud';
 import { AppCtx } from './ctx';
 import { BUCKETS, Icon, addedDetail, agoLabel, inCheckHours, nextCheckAt, whenLabel, SectionHeader, WorkRow, bucketOf, isWork, kindOf, niceCourse, postedDetail, postedLabel, shortDue, statusOf, st } from './ui';
@@ -266,15 +266,19 @@ export function Preview({ file, onClose }) {
   const { api, saved, onSaved, ck } = useContext(AppCtx);
   const [busy, setBusy] = useState(false);
   const [cloudErr, setCloudErr] = useState('');
-  const local = file.local || saved[file.id];
-  const uri = local || api.fileUrl(file.id);
+  const rawLocal = file.local || saved[file.id];
+  const [gone, setGone] = useState(false);
+  useEffect(() => { let on = true; if (rawLocal) fileExists(rawLocal).then((ok) => { if (on) setGone(!ok); }); return () => { on = false; }; }, [rawLocal]);
+  const local = rawLocal && !gone ? resolveLocal(rawLocal) : null;
+  const uri = local ? encodeURI(decodeURI(local)) : api.fileUrl(file.id);
+  const dir = local ? uri.slice(0, uri.lastIndexOf('/') + 1) : undefined;
   const doCloud = async () => {
     setBusy(true); setCloudErr('');
-    try { onSaved(file.id, await saveBase64(await cloudFileBase64(ck, file), file.name)); }
+    try { onSaved(file.id, await saveBase64(await cloudFileBase64(ck, file), file.name, file.id)); }
     catch (e) { setCloudErr(e.message || 'Could not get it from iCloud'); }
     setBusy(false);
   };
-  const doSave = async () => { setBusy(true); try { onSaved(file.id, await downloadFile(uri, file.name)); } catch {} setBusy(false); };
+  const doSave = async () => { setBusy(true); try { onSaved(file.id, await downloadFile(uri, file.name, file.id)); setGone(false); } catch {} setBusy(false); };
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: '#fff' }}>
@@ -285,7 +289,7 @@ export function Preview({ file, onClose }) {
         </View>
         {Platform.OS === 'web'
           ? <View style={{ padding: 20 }}><Text style={s.rowSub}>Previews open inside the installed app.</Text><Text style={{ color: C.blue, marginTop: 8 }} onPress={() => Linking.openURL(uri)}>Open in browser</Text></View>
-          : <WebView source={{ uri }} originWhitelist={['*']} allowFileAccess allowingReadAccessToURL={local || undefined} startInLoadingState
+          : <WebView source={{ uri }} originWhitelist={['*']} allowFileAccess allowFileAccessFromFileURLs allowUniversalAccessFromFileURLs allowingReadAccessToURL={dir} startInLoadingState
               renderLoading={() => <ActivityIndicator style={{ marginTop: 40 }} color={C.blue} />}
               renderError={() => <View style={{ padding: 24 }}><Text style={s.attachName}>Can’t preview right now</Text><Text style={[s.rowSub, { marginTop: 6 }]}>{ck ? 'This network may block the bot. You can still get the file through iCloud.' : 'No connection. Save it when you’re online and it opens offline.'}</Text>{ck ? <View style={{ marginTop: 14, alignItems: 'flex-start' }}><Btn icon="cloud-download-outline" label="Get it from iCloud" onPress={doCloud} disabled={busy} /></View> : null}{!!cloudErr && <Text style={{ color: C.red, marginTop: 10 }}>{cloudErr}</Text>}</View>} />}
       </View>
