@@ -214,7 +214,8 @@ function Main() {
     imported.forEach((it) => scheduleReminders(it));
     setStack([]); setTab('classes');
     const nf = imported.reduce((n, i) => n + (i.files || []).length, 0);
-    notify(`Imported ${imported.length} item${imported.length === 1 ? '' : 's'}${nf ? ` · ${nf} file${nf === 1 ? '' : 's'} saved offline` : ''}.`);
+    notify(`Imported ${imported.length} item${imported.length === 1 ? '' : 's'}${nf ? ` · ${nf} file${nf === 1 ? '' : 's'} saved offline` : ''}.${imported.more ? `\nMore is waiting (about ${imported.more}): text the bot again.` : ''}`);
+    if (imported.more) { clearTimeout(noticeTimer.current); noticeTimer.current = setTimeout(() => setNotice(''), 9000); }
   }, [merge, notify]);
 
   // Files opened with Share → Classroom Feed: a Homework zip fills the library; anything else (e.g. from Quill) is your finished work.

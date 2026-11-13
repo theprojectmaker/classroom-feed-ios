@@ -16,6 +16,7 @@ export function parseZip(bytes) {
     const m = JSON.parse(strFromU8(byName[mName]));
     const prefix = mName.slice(0, mName.length - 'manifest.json'.length);
     return {
+      more: Number(m.more) || 0,
       items: (m.items || []).map((it) => ({
         id: it.id || 'zip-' + now + '-' + Math.random().toString(36).slice(2, 8),
         kind: it.type || 'assignment',

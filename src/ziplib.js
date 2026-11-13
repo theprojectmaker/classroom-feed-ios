@@ -13,8 +13,9 @@ export async function importZipFile(uri) {
   if (Platform.OS === 'web') throw new Error('Zip import needs the installed app');
   const fs = FS();
   const b64 = await fs.readAsStringAsync(uri, { encoding: 'base64' });
-  const { items } = parseZip(toBytes(b64));
+  const { items, more } = parseZip(toBytes(b64));
   const out = [];
+  out.more = more || 0; // the bot says how many more items are waiting for the next text
   for (const it of items) {
     const dir = fs.documentDirectory + 'attachments/' + safe(it.id) + '/';
     await fs.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
