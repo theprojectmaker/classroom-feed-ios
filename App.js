@@ -223,7 +223,7 @@ function Main() {
     const handle = (u) => {
       if (!u || !/^file:/i.test(u)) return;
       const name = decodeURIComponent(u.split('/').pop().split('?')[0]);
-      if (/\.zip$/i.test(name)) handleZip(u).catch(() => notify('Could not read that zip.'));
+      if (/\.zip$/i.test(name)) handleZip(u).catch((e) => { notify('Could not read that zip: ' + String((e && e.message) || e).slice(0, 260)); clearTimeout(noticeTimer.current); noticeTimer.current = setTimeout(() => setNotice(''), 15000); });
       else setIncoming({ uri: u, name });
     };
     Linking.getInitialURL().then(handle).catch(() => {});

@@ -9,11 +9,43 @@ const toB64 = (u) => { let s = ''; for (let i = 0; i < u.length; i += 0x8000) s 
 const safe = (s) => String(s).replace(/[^\w.\- ]+/g, '_').slice(0, 80);
 
 /** Reads a zip (from Messages' share sheet or the file picker), saves its files inside the app, returns library items. */
+/** Reads the zip's raw bytes. Catch-up zips are ~40 MB, so go straight to bytes (the old base64 route made 3+ copies as
+ *  huge strings and ran the iPad out of memory); fall back to base64 only if the byte API is unavailable. */
+async function readZipBytes(uri) {
+  const errs = [];
+  try {
+    const { File } = require('expo-file-system');
+    return await new File(uri).bytes();
+  } catch (e) { errs.push('bytes: ' + (e && e.message || e)); }
+  try {
+    const fs = FS();
+    const tmp = fs.cacheDirectory + 'incoming-' + Date.now() + '.zip';
+    await fs.copyAsync({ from: uri, to: tmp }); // a copy inside the app's own cache is always readable
+    const b64 = await fs.readAsStringAsync(tmp, { encoding: 'base64' });
+    fs.deleteAsync(tmp, { idempotent: true }).catch(() => {});
+    return toBytes(b64);
+  } catch (e) { errs.push('copy: ' + (e && e.message || e)); }
+  try { return toBytes(await FS().readAsStringAsync(uri, { encoding: 'base64' })); }
+  catch (e) { errs.push('read: ' + (e && e.message || e)); }
+  throw new Error('open failed (' + errs.join(' | ').slice(0, 220) + ')');
+}
+
+async function writeBytes(path, bytes) {
+  try {
+    const { File } = require('expo-file-system');
+    new File(path).write(bytes); // raw bytes, no base64 string
+    return;
+  } catch {}
+  await FS().writeAsStringAsync(path, toB64(bytes), { encoding: 'base64' });
+}
+
 export async function importZipFile(uri) {
   if (Platform.OS === 'web') throw new Error('Zip import needs the installed app');
   const fs = FS();
-  const b64 = await fs.readAsStringAsync(uri, { encoding: 'base64' });
-  const { items, more } = parseZip(toBytes(b64));
+  const raw = await readZipBytes(uri);
+  let parsed;
+  try { parsed = parseZip(raw); } catch (e) { throw new Error('bad zip (' + (e && e.message || e) + ')'); }
+  const { items, more } = parsed;
   const out = [];
   out.more = more || 0; // the bot says how many more items are waiting for the next text
   for (const it of items) {
@@ -21,8 +53,9 @@ export async function importZipFile(uri) {
     await fs.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
     const files = [];
     for (const f of it.fileData) {
-      const path = dir + safe(f.name);
-      await fs.writeAsStringAsync(path, toB64(f.bytes), { encoding: 'base64' });
+      const stored = safe(f.name).replace(/ +/g, '_'); // no spaces in the saved path: plain, always-valid file URL
+      const path = dir + stored;
+      await writeBytes(path, f.bytes);
       files.push({ id: 'local-' + it.id + '-' + safe(f.name), name: f.name, size: f.bytes.length, local: path });
     }
     const { fileData, ...rest } = it;
