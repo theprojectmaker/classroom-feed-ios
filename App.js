@@ -214,7 +214,8 @@ function Main() {
     imported.forEach((it) => scheduleReminders(it));
     setStack([]); setTab('classes');
     const nf = imported.reduce((n, i) => n + (i.files || []).length, 0);
-    notify(`Imported ${imported.length} item${imported.length === 1 ? '' : 's'}${nf ? ` · ${nf} file${nf === 1 ? '' : 's'} saved offline` : ''}.${imported.more ? `\nMore is waiting (about ${imported.more}): text the bot again.` : ''}`);
+    notify(`Imported ${imported.length} item${imported.length === 1 ? '' : 's'}${nf ? ` · ${nf} file${nf === 1 ? '' : 's'} saved offline` : ''}.${imported.failed ? `
+(${imported.failed} file${imported.failed === 1 ? '' : 's'} could not be saved)` : ''}${imported.more ? `\nMore is waiting (about ${imported.more}): text the bot again.` : ''}`);
     if (imported.more) { clearTimeout(noticeTimer.current); noticeTimer.current = setTimeout(() => setNotice(''), 9000); }
   }, [merge, notify]);
 
@@ -222,7 +223,7 @@ function Main() {
   useEffect(() => {
     const handle = (u) => {
       if (!u || !/^file:/i.test(u)) return;
-      const name = decodeURIComponent(u.split('/').pop().split('?')[0]);
+      let name = u.split('/').pop().split('?')[0]; try { name = decodeURIComponent(name); } catch {}
       if (/\.zip$/i.test(name)) handleZip(u).catch((e) => { notify('Could not read that zip: ' + String((e && e.message) || e).slice(0, 260)); clearTimeout(noticeTimer.current); noticeTimer.current = setTimeout(() => setNotice(''), 15000); });
       else setIncoming({ uri: u, name });
     };

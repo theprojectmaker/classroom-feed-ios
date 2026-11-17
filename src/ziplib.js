@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import { zipSync, strToU8 } from 'fflate';
-import { parseZip } from './zipparse';
+import { parseZip, openZip } from './zipparse';
 import { resolveLocal } from './files';
 
 const FS = () => require('expo-file-system/legacy');
@@ -43,20 +43,44 @@ export async function importZipFile(uri) {
   if (Platform.OS === 'web') throw new Error('Zip import needs the installed app');
   const fs = FS();
   const raw = await readZipBytes(uri);
+  const out = [];
+  out.failed = 0;
+  let z = null;
+  try { z = openZip(raw); } catch (e) { throw new Error('bad zip (' + (e && e.message || e) + ')'); }
+  if (z) {
+    out.more = z.more || 0; // the bot says how many more items are waiting for the next text
+    for (const it of z.items) {
+      const dir = fs.documentDirectory + 'attachments/' + safe(it.id) + '/';
+      await fs.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
+      const files = [];
+      for (const f of it.fileRefs) {
+        try {
+          const bytes = z.read(f.path);
+          if (!bytes) { out.failed++; continue; }
+          const path = dir + safe(f.name).replace(/ +/g, '_');
+          await writeBytes(path, bytes);
+          files.push({ id: 'local-' + it.id + '-' + safe(f.name), name: f.name, size: bytes.length, local: path });
+        } catch { out.failed++; } // one bad file never sinks the rest of the zip
+      }
+      const { fileRefs, ...rest } = it;
+      out.push({ ...rest, files });
+    }
+    return out;
+  }
   let parsed;
   try { parsed = parseZip(raw); } catch (e) { throw new Error('bad zip (' + (e && e.message || e) + ')'); }
   const { items, more } = parsed;
-  const out = [];
-  out.more = more || 0; // the bot says how many more items are waiting for the next text
+  out.more = more || 0;
   for (const it of items) {
     const dir = fs.documentDirectory + 'attachments/' + safe(it.id) + '/';
     await fs.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
     const files = [];
     for (const f of it.fileData) {
-      const stored = safe(f.name).replace(/ +/g, '_'); // no spaces in the saved path: plain, always-valid file URL
-      const path = dir + stored;
-      await writeBytes(path, f.bytes);
-      files.push({ id: 'local-' + it.id + '-' + safe(f.name), name: f.name, size: f.bytes.length, local: path });
+      try {
+        const path = dir + safe(f.name).replace(/ +/g, '_');
+        await writeBytes(path, f.bytes);
+        files.push({ id: 'local-' + it.id + '-' + safe(f.name), name: f.name, size: f.bytes.length, local: path });
+      } catch { out.failed++; }
     }
     const { fileData, ...rest } = it;
     out.push({ ...rest, files });

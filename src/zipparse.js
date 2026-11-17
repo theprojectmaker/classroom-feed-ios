@@ -56,3 +56,32 @@ export function parseZip(bytes) {
     })),
   };
 }
+
+/** Memory-safe reader for the bot's manifest zips: lists the manifest first, then pulls out ONE file at a time,
+ *  so a 30 MB zip never sits fully decompressed in memory and one bad file cannot sink the whole import.
+ *  Returns null when the zip has no manifest (use parseZip's folder fallback for those). */
+export function openZip(bytes) {
+  const names = [];
+  unzipSync(bytes, { filter: (f) => { names.push(f.name); return false; } });
+  const mName = names.find((n) => norm(n) === 'manifest.json' || norm(n).endsWith('/manifest.json'));
+  if (!mName) return null;
+  const mo = unzipSync(bytes, { filter: (f) => f.name === mName });
+  const m = JSON.parse(strFromU8(mo[mName]));
+  const prefix = norm(mName).slice(0, norm(mName).length - 'manifest.json'.length);
+  const now = Date.now();
+  const read = (path) => {
+    const want = norm(prefix + path);
+    const o = unzipSync(bytes, { filter: (f) => norm(f.name) === want });
+    const k = Object.keys(o)[0];
+    return k ? o[k] : null;
+  };
+  const items = (m.items || []).map((it) => ({
+    id: it.id || 'zip-' + now + '-' + Math.random().toString(36).slice(2, 8),
+    kind: it.type || 'assignment', course: it.course || 'Other', title: it.title || 'Untitled',
+    due: it.due || '', dueAt: it.dueAt || 0, posted_at: it.postedAt || now, posted_text: it.postedText || '',
+    created_at: it.addedAt || now, body: it.body || '', url: it.url || '',
+    grade: it.grade || '', status: it.status || '', comments: it.comments || '', changeNote: it.changeNote || '',
+    files: [], fileRefs: (it.files || []).map((f) => ({ name: f.name, path: f.path })),
+  }));
+  return { more: Number(m.more) || 0, items, read };
+}
