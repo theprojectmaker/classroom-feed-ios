@@ -44,8 +44,11 @@ export function ClassesScreen() {
     const m = new Map();
     items.forEach((i) => {
       const k = i.course || 'Other';
-      const e = m.get(k) || { name: k, todo: 0, next: 0, count: 0 };
-      e.count++;
+      const e = m.get(k) || { name: k, todo: 0, next: 0, count: 0, files: 0, fresh: 0, over: 0, mats: 0 };
+      e.count++; e.files += (i.files || []).length;
+      if ((i.created_at || 0) > Date.now() - 86400000) e.fresh++;
+      if (i.kind === 'material') e.mats++;
+      if (isWork(i) && !i.submitted && i.dueAt && i.dueAt < Date.now()) e.over++;
       if (isWork(i) && !i.submitted) { e.todo++; if (i.dueAt && i.dueAt > Date.now() && (!e.next || i.dueAt < e.next)) e.next = i.dueAt; }
       m.set(k, e);
     });
@@ -80,12 +83,13 @@ export function ClassesScreen() {
               <Pressable onPress={() => openClass(c.name)} style={[s.classCard, cols > 1 && { flex: 1 }]}>
                 <View style={[s.classBanner, { backgroundColor: color }]}>
                   <Text style={s.classTitle} numberOfLines={2}>{c.name}</Text>
-                  <Text style={s.classSub}>{c.count} post{c.count === 1 ? '' : 's'}</Text>
+                  <Text style={s.classSub}>{c.count} post{c.count === 1 ? '' : 's'} · {c.files} file{c.files === 1 ? '' : 's'}{c.mats ? ` · ${c.mats} material${c.mats === 1 ? '' : 's'}` : ''}</Text>
+                  {c.fresh > 0 && <View style={s.freshPill}><Text style={s.freshTxt}>{c.fresh} new today</Text></View>}
                   <View style={s.avatar}><Text style={[s.avatarTxt, { color }]}>{c.name.trim().charAt(0).toUpperCase()}</Text></View>
                 </View>
                 <View style={s.classFoot}>
                   <Text style={[s.classDue, c.todo > 0 && { color: C.text }]} numberOfLines={1}>
-                    {c.todo === 0 ? 'No work due' : c.next ? `${c.todo} to do · next ${shortDue({ dueAt: c.next })}` : `${c.todo} to do`}
+                    {(c.todo === 0 ? 'No work due' : c.next ? `${c.todo} to do · next ${shortDue({ dueAt: c.next })}` : `${c.todo} to do`) + (c.over ? ` · ${c.over} overdue` : '')}
                   </Text>
                   <Icon n="chevron-forward" s={18} c={C.sub} />
                 </View>
@@ -481,6 +485,8 @@ const s = StyleSheet.create({
   classBanner: { height: 104, padding: 14, justifyContent: 'flex-end' },
   classTitle: { color: '#fff', fontSize: 21, fontWeight: '500', paddingRight: 56 },
   classSub: { color: '#ffffffdd', fontSize: 13, marginTop: 2 },
+  freshPill: { alignSelf: 'flex-start', marginTop: 6, backgroundColor: '#ffffff33', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
+  freshTxt: { color: '#fff', fontSize: 11.5, fontWeight: '700' },
   avatar: { position: 'absolute', right: 14, top: 14, width: 48, height: 48, borderRadius: 24, backgroundColor: '#ffffffee', alignItems: 'center', justifyContent: 'center' },
   avatarTxt: { fontSize: 22, fontWeight: '600' },
   classFoot: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 12 },

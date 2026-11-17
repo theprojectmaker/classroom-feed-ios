@@ -111,13 +111,17 @@ export function RowIcon({ item, color }) {
 export function WorkRow({ item, color, onPress, showCourse }) {
   const status = statusOf(item);
   const sub = isWork(item) ? shortDue(item) : postedLabel(item);
+  const snippet = String(item.body || '').split(String.fromCharCode(10)).map((x) => x.trim()).find((x) => x && !/^(LINKS|•)/.test(x)) || '';
+  const isNew = (item.created_at || 0) > Date.now() - DAY;
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [st.row, pressed && { backgroundColor: '#f1f3f4' }]}>
       <RowIcon item={item} color={color} />
       <View style={{ flex: 1 }}>
         <Text style={[st.rowTitle, item.submitted && { color: C.sub }]} numberOfLines={2}>{item.title}</Text>
-        <Text style={st.rowSub} numberOfLines={1}>{showCourse ? `${item.course} · ` : ''}{sub}</Text>
+        <Text style={st.rowSub} numberOfLines={1}>{showCourse ? `${item.course} · ` : ''}{sub}{(item.files || []).length ? ` · ${(item.files || []).length} file${(item.files || []).length === 1 ? '' : 's'}` : ''}</Text>
+        {!!snippet && <Text style={st.rowSnip} numberOfLines={1}>{snippet}</Text>}
       </View>
+      {isNew && <Text style={st.newChip}>NEW</Text>}
       {!!(item.changeNote || item.change_note) && (item.changed_at || 0) > Date.now() - 7 * DAY && <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: C.red }} />}
       {!!item.grade && <Text style={st.grade}>{item.grade}</Text>}
       {item.starred && <Icon n="star" s={16} c={C.amber} />}
@@ -142,6 +146,8 @@ export const st = StyleSheet.create({
   rowIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   rowTitle: { fontSize: 15, color: C.text, fontWeight: '500' },
   rowSub: { fontSize: 12.5, color: C.sub, marginTop: 2 },
+  rowSnip: { fontSize: 12.5, color: '#80868b', marginTop: 2 },
+  newChip: { color: '#fff', backgroundColor: C.blue, fontSize: 10.5, fontWeight: '800', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8, overflow: 'hidden' },
   overdue: { color: C.red, fontSize: 12, fontWeight: '700' },
   grade: { color: C.green, fontSize: 12.5, fontWeight: '700', backgroundColor: '#e6f4ea', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, overflow: 'hidden' },
   secHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 18, paddingBottom: 8, backgroundColor: C.bg },
