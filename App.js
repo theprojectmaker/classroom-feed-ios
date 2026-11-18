@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, Linking, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Notifications from 'expo-notifications';
@@ -9,10 +9,15 @@ import { fileSize, openFile, saveLocal, removeLocal, resolveLocal, fileExists, d
 import { exportLibraryZip, importZipFile } from './src/ziplib';
 import { cancelReminders, scheduleReminders } from './src/remind';
 import { AppCtx } from './src/ctx';
-import { cloudLibrary, cloudFileBase64 } from './src/cloud';
+import { cloudLibrary, cloudFileBase64, ckWriteTurnins, ckSignInUrl } from './src/cloud';
+import { WebView } from 'react-native-webview';
 import { Icon, isWork, niceCourse } from './src/ui';
 import { AttachPicker, ClassScreen, ClassesScreen, ItemScreen, NetworkScreen, Notice, Preview, SettingsScreen, TodoScreen, WhatsNew } from './src/screens';
 import { AddModal, SearchScreen } from './src/extra';
+
+// One-time Apple sign-in capture, so turn-ins can be written to iCloud at school (the same approach the remote app uses).
+const CK_CAPTURE_JS = `(function(){function grab(h){var m=(h||'').match(/[?&#]ckWebAuthToken=([^&#]+)/);if(m){window.ReactNativeWebView.postMessage(JSON.stringify({t:'cwt',v:decodeURIComponent(m[1])}));return true;}return false;}grab(location.href);window.addEventListener('message',function(ev){try{var d=typeof ev.data==='string'?JSON.parse(ev.data):ev.data;if(d&&d.ckWebAuthToken){window.ReactNativeWebView.postMessage(JSON.stringify({t:'cwt',v:d.ckWebAuthToken}));}}catch(e){}});}()); true;`;
+const ckTokenFromUrl = (u) => { const m = (u || '').match(/[?&#]ckWebAuthToken=([^&#]+)/); return m ? decodeURIComponent(m[1]) : null; };
 
 const NAV = [['classes', 'Classes', 'home'], ['todo', 'To-do', 'checkbox'], ['find', 'Find', 'search'], ['settings', 'Settings', 'settings']];
 
@@ -32,6 +37,7 @@ function Main() {
   const [fresh, setFresh] = useState([]);
   const [checkInfo, setCheckInfo] = useState(null);
   const [ck, setCk] = useState(null); // read-only iCloud details, learned while the bot is reachable
+  const [ckAuthUrl, setCkAuthUrl] = useState(null); // Apple sign-in WebView, shown when enabling iCloud submit
   const ckRef = useRef(null); ckRef.current = ck;
   const [ready, setReady] = useState(false);
   const api = useMemo(() => makeApi(cfg), [cfg]);
@@ -213,9 +219,29 @@ function Main() {
     updateItem(item.id, { turnin: cancel ? '' : 'queued', turnin_note: cancel ? '' : 'Waiting to turn in' });
     queueRef.current = [...queueRef.current.filter((q) => q.type !== 'turnin' || q.id !== item.id), { type: 'turnin', id: item.id, cancel }];
     persistQueue();
-    notify(cancel ? 'Turn-in canceled' : 'Will turn in on Classroom when you’re on open Wi-Fi');
+    // If signed in for iCloud submit, also write the request to iCloud — that's the path that works on the school Wi-Fi.
+    const viaICloud = !!(ckRef.current && ckRef.current.webAuthToken);
+    if (viaICloud) {
+      const cur = itemsRef.current.filter((i) => i.turnin === 'queued' && i.id !== item.id).map((i) => i.id);
+      ckWriteTurnins(ckRef.current, cancel ? cur : [...cur, item.id]).catch(() => {});
+    }
+    notify(cancel ? 'Turn-in canceled' : viaICloud ? 'Turning in — sent over iCloud, works at school' : 'Will turn in on Classroom when you’re on open Wi-Fi');
     sync();
   }, [sync, notify, updateItem]);
+
+  /** One-time Apple sign-in so turn-ins can be sent over iCloud at school (where the bot can't be reached). */
+  const beginICloudSubmit = useCallback(async () => {
+    if (!ckRef.current || !ckRef.current.token) { notify('Open the app on home Wi-Fi once first so it has the iCloud key.'); return; }
+    try { const url = await ckSignInUrl(ckRef.current); if (url) setCkAuthUrl(url); else notify('iCloud submit is already set up.'); }
+    catch { notify('Couldn’t start the iCloud sign-in. Try again on open Wi-Fi.'); }
+  }, [notify]);
+  const completeICloudSubmit = useCallback((token) => {
+    setCkAuthUrl(null);
+    if (!token) return;
+    const next = { ...(ckRef.current || {}), webAuthToken: token };
+    setCk(next); save('ck', next);
+    notify('Signed in to iCloud — you can now submit at school.');
+  }, [notify]);
 
   const handleZip = useCallback(async (uri) => {
     const imported = await importZipFile(uri);
@@ -266,12 +292,12 @@ function Main() {
 
   const goTab = (k) => { setStack([]); setTab(k); };
   const ctx = useMemo(() => ({
-    items, cfg, api, saved, onSaved, status, refreshing, checkInfo, ck, refresh: sync, toggleSubmitted, turnIn, pickAndUpload, shareLibrary, onAuth,
+    items, cfg, api, saved, onSaved, status, refreshing, checkInfo, ck, refresh: sync, toggleSubmitted, turnIn, beginICloudSubmit, icloudSubmit: !!(ck && ck.webAuthToken), pickAndUpload, shareLibrary, onAuth,
     onSignOut: () => setCfg({ ...cfg, token: '' }),
     updateItem, deleteItem, openAdd: () => setAdding(true),
     openPreview: (file, list) => setPreview({ file, list: list && list.length ? list : [file] }), openClass: (name) => push({ t: 'class', name }), openItem: (id) => push({ t: 'item', id }),
     openNetwork: () => push({ t: 'network' }), pop,
-  }), [items, cfg, api, saved, onSaved, status, refreshing, checkInfo, ck, sync, toggleSubmitted, turnIn, pickAndUpload, shareLibrary, onAuth, push, pop, updateItem, deleteItem]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [items, cfg, api, saved, onSaved, status, refreshing, checkInfo, ck, sync, toggleSubmitted, turnIn, beginICloudSubmit, pickAndUpload, shareLibrary, onAuth, push, pop, updateItem, deleteItem]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const top = stack[stack.length - 1];
   const dueSoon = items.filter((i) => isWork(i) && !i.submitted && i.dueAt && i.dueAt < Date.now() + 2 * 86400000).length;
@@ -315,6 +341,20 @@ function Main() {
         {adding && <AddModal classes={[...new Set(items.map((i) => i.course || 'Other'))].sort()} onSave={addItem} onClose={() => setAdding(false)} />}
         {incoming && <AttachPicker incoming={incoming} items={items} onClose={() => setIncoming(null)}
           onPick={(it) => { uploadFor(it, { uri: incoming.uri, name: incoming.name }); setIncoming(null); setStack([{ t: 'item', id: it.id }]); }} />}
+        {ckAuthUrl && (
+          <Modal visible animationType="slide" onRequestClose={() => completeICloudSubmit(null)}>
+            <View style={{ flex: 1, backgroundColor: '#fff', paddingTop: insets.top }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line }}>
+                <Text style={{ fontSize: 17, fontWeight: '700', color: C.text }}>Sign in to iCloud</Text>
+                <Pressable onPress={() => completeICloudSubmit(null)} hitSlop={10}><Text style={{ color: C.blue, fontWeight: '600', fontSize: 16 }}>Close</Text></Pressable>
+              </View>
+              <WebView source={{ uri: ckAuthUrl }} injectedJavaScript={CK_CAPTURE_JS}
+                onMessage={(e) => { try { const d = JSON.parse(e.nativeEvent.data); if (d.t === 'cwt' && d.v) completeICloudSubmit(d.v); } catch {} }}
+                onShouldStartLoadWithRequest={(req) => { const tk = ckTokenFromUrl(req.url); if (tk) { completeICloudSubmit(tk); return false; } return true; }}
+                onNavigationStateChange={(nav) => { const tk = ckTokenFromUrl(nav.url); if (tk) completeICloudSubmit(tk); }} />
+            </View>
+          </Modal>
+        )}
       </View>
     </AppCtx.Provider>
   );

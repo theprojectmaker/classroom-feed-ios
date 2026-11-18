@@ -37,3 +37,31 @@ export async function cloudFileBase64(cfg, file) {
   }
   return parts.join(''); // every chunk is a multiple of 3 bytes, so the base64 pieces simply concatenate
 }
+
+const modifyUrl = (cfg) => {
+  let u = `${BASE}/${cfg.container}/${cfg.environment || 'development'}/public/records/modify?ckAPIToken=${encodeURIComponent(cfg.token)}`;
+  if (cfg.webAuthToken) u += `&ckWebAuthToken=${encodeURIComponent(cfg.webAuthToken)}`;
+  return u;
+};
+
+/** Writes the turn-in request list into CloudKit (reusing the LibraryMeta type, record name "turnins") so the bot
+ * picks it up on the school Wi-Fi where the bot itself is unreachable. Needs a one-time Apple sign-in
+ * (ckWebAuthToken) — the public database forbids anonymous writes. The bot reads {ids,ts} from the json field. */
+export async function ckWriteTurnins(cfg, ids, ms = 15000) {
+  if (!cfg || !cfg.webAuthToken) throw new Error('needs-icloud-signin');
+  const ts = Date.now();
+  const body = { operations: [{ operationType: 'forceReplace', record: { recordType: 'LibraryMeta', recordName: 'turnins', fields: { json: { value: JSON.stringify({ ids, ts }) }, updatedAt: { value: ts } } } }] };
+  const res = await timedFetch(modifyUrl(cfg), { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(body) }, ms);
+  const data = await res.json().catch(() => ({}));
+  const bad = data.records && data.records[0] && data.records[0].serverErrorCode;
+  if (!res.ok || bad || data.serverErrorCode) throw new Error(bad || data.serverErrorCode || `HTTP ${res.status}`);
+  return true;
+}
+
+/** Starts the one-time Apple sign-in used for writing. Returns a URL to open in a WebView (the ckWebAuthToken comes
+ * back in that page's redirect), or null if the current token can already write. */
+export async function ckSignInUrl(cfg, ms = 12000) {
+  const res = await timedFetch(`${BASE}/${cfg.container}/${cfg.environment || 'development'}/public/users/caller?ckAPIToken=${encodeURIComponent(cfg.token)}`, { method: 'GET' }, ms);
+  const data = await res.json().catch(() => ({}));
+  return data.redirectURL || null;
+}

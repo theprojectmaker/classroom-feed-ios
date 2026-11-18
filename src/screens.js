@@ -381,7 +381,7 @@ export function Notice({ text }) {
 
 /* ---------- Settings (account, devices, network test) ---------- */
 export function SettingsScreen() {
-  const { cfg, onAuth, onSignOut, refresh, status, shareLibrary, openNetwork, ck } = useContext(AppCtx);
+  const { cfg, onAuth, onSignOut, refresh, status, shareLibrary, openNetwork, ck, beginICloudSubmit, icloudSubmit } = useContext(AppCtx);
   const [name, setName] = useState(cfg.name || '');
   const [password, setPassword] = useState('');
   const [invite, setInvite] = useState('');
@@ -417,6 +417,12 @@ export function SettingsScreen() {
             </View>
           </View>
         )}
+        <Text style={s.setHead}>Submit at school</Text>
+        <View style={s.setCard}>
+          <Text style={s.rowSub}>Seeing assignments, grades and files at school works with no sign-in. Turning one in over iCloud needs a one-time Apple sign-in (Apple only allows writing to iCloud once you’re signed in).</Text>
+          <Text style={[s.rowSub, { marginTop: 6, fontWeight: '600', color: icloudSubmit ? C.green : C.sub }]}>{icloudSubmit ? 'Signed in — you can turn in at school ✓' : ck ? 'Not signed in yet' : 'Open the app once on home Wi-Fi first, then come back'}</Text>
+          <View style={{ marginTop: 10 }}><Btn kind={icloudSubmit ? 'outline' : 'solid'} icon="cloud-upload-outline" label={icloudSubmit ? 'Re-sign in to iCloud' : 'Sign in to submit at school'} onPress={beginICloudSubmit} /></View>
+        </View>
         <Text style={s.setHead}>Devices</Text>
         <View style={s.setCard}>
           <Text style={s.rowSub}>No internet on a network? Pack your library into one file, AirDrop it to another device, and open it with Classroom Feed.</Text>
