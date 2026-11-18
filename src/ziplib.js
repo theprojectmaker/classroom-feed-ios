@@ -6,6 +6,16 @@ import { resolveLocal } from './files';
 const FS = () => require('expo-file-system/legacy');
 const toBytes = (b64) => { const bin = atob(b64); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
 const toB64 = (u) => { let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
+/** File names keep their extension when shortened: a name cut to 80 characters lost ".pdf", and the preview then showed the raw bytes as text. */
+const safeFile = (name) => {
+  const clean = String(name).replace(/[^w.- ]+/g, '_');
+  const m = clean.match(/(.[A-Za-z0-9]{1,6})$/);
+  const ext = m ? m[1] : '';
+  const base = ext ? clean.slice(0, -ext.length) : clean;
+  if (base.length <= 70) return base + ext;
+  let h = 0; for (let i = 0; i < clean.length; i++) h = (h * 31 + clean.charCodeAt(i)) >>> 0;
+  return base.slice(0, 60) + '-' + h.toString(36).slice(0, 4) + ext;
+};
 const safe = (s) => String(s).replace(/[^\w.\- ]+/g, '_').slice(0, 80);
 
 /** Reads a zip (from Messages' share sheet or the file picker), saves its files inside the app, returns library items. */
@@ -57,7 +67,7 @@ export async function importZipFile(uri) {
         try {
           const bytes = z.read(f.path);
           if (!bytes) { out.failed++; continue; }
-          const path = dir + safe(f.name).replace(/ +/g, '_');
+          const path = dir + safeFile(f.name).replace(/ +/g, '_');
           await writeBytes(path, bytes);
           files.push({ id: 'local-' + it.id + '-' + safe(f.name), name: f.name, size: bytes.length, local: path });
         } catch { out.failed++; } // one bad file never sinks the rest of the zip
@@ -77,7 +87,7 @@ export async function importZipFile(uri) {
     const files = [];
     for (const f of it.fileData) {
       try {
-        const path = dir + safe(f.name).replace(/ +/g, '_');
+        const path = dir + safeFile(f.name).replace(/ +/g, '_');
         await writeBytes(path, f.bytes);
         files.push({ id: 'local-' + it.id + '-' + safe(f.name), name: f.name, size: f.bytes.length, local: path });
       } catch { out.failed++; }

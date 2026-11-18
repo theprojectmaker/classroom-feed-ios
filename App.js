@@ -67,7 +67,8 @@ function Main() {
       const i = { ...raw, course: niceCourse(raw.course) };
       const old = map.get(i.id);
       if (!old) { map.set(i.id, { ...i, submitted: !!i.submitted }); return; }
-      const keepLocal = (old.files || []).filter((f) => f.local || f.pending);
+      const incLocal = new Set((i.files || []).filter((f) => f.local).map((f) => f.name)); // a freshly imported copy replaces an older (possibly mis-named) one
+      const keepLocal = (old.files || []).filter((f) => (f.local || f.pending) && !incLocal.has(f.name));
       const names = new Set(keepLocal.map((f) => f.name));
       const files = [...keepLocal, ...(i.files || []).filter((f) => !names.has(f.name))];
       map.set(i.id, { ...old, ...i, files, dueAt: i.dueAt || old.dueAt || 0,
