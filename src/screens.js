@@ -79,19 +79,21 @@ export function ClassesScreen() {
           renderItem={({ item: c }) => {
             if (c.pad) return <View style={{ flex: 1 }} />;
             const color = courseColor(c.name);
+            const due = c.todo === 0 ? 'No work due soon' : c.next ? `${c.todo} assignment${c.todo === 1 ? '' : 's'} · next ${shortDue({ dueAt: c.next })}` : `${c.todo} assignment${c.todo === 1 ? '' : 's'} to do`;
             return (
-              <Pressable onPress={() => openClass(c.name)} style={[s.classCard, cols > 1 && { flex: 1 }]}>
+              <Pressable onPress={() => openClass(c.name)} style={[s.classCard, cols > 1 && { flex: 1 }]} android_ripple={{ color: '#00000011' }}>
                 <View style={[s.classBanner, { backgroundColor: color }]}>
-                  <Text style={s.classTitle} numberOfLines={2}>{c.name}</Text>
-                  <Text style={s.classSub}>{c.count} post{c.count === 1 ? '' : 's'} · {c.files} file{c.files === 1 ? '' : 's'}{c.mats ? ` · ${c.mats} material${c.mats === 1 ? '' : 's'}` : ''}</Text>
-                  {c.fresh > 0 && <View style={s.freshPill}><Text style={s.freshTxt}>{c.fresh} new today</Text></View>}
+                  <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+                    <Text style={s.classTitle} numberOfLines={2}>{c.name}</Text>
+                  </View>
                   <View style={s.avatar}><Text style={[s.avatarTxt, { color }]}>{c.name.trim().charAt(0).toUpperCase()}</Text></View>
+                  {c.fresh > 0 && <View style={s.freshPill}><Text style={s.freshTxt}>{c.fresh} new</Text></View>}
                 </View>
-                <View style={s.classFoot}>
-                  <Text style={[s.classDue, c.todo > 0 && { color: C.text }]} numberOfLines={1}>
-                    {(c.todo === 0 ? 'No work due' : c.next ? `${c.todo} to do · next ${shortDue({ dueAt: c.next })}` : `${c.todo} to do`) + (c.over ? ` · ${c.over} overdue` : '')}
+                <View style={s.classBody}>
+                  <Icon n="reader-outline" s={18} c={c.over ? C.red : C.sub} />
+                  <Text style={[s.classDue, c.todo > 0 && { color: C.text, fontWeight: '500' }, c.over > 0 && { color: C.red, fontWeight: '500' }]} numberOfLines={1}>
+                    {due}{c.over ? ` · ${c.over} overdue` : ''}
                   </Text>
-                  <Icon n="chevron-forward" s={18} c={C.sub} />
                 </View>
               </Pressable>
             );
@@ -251,9 +253,9 @@ export function ItemScreen({ id }) {
                   <Btn icon="paper-plane-outline" label={mine.length ? 'Turn in on Classroom' : 'Turn in / Mark as done on Classroom'} onPress={() => turnIn(item)} />
                   <Text style={s.workHint}>{mine.length ? 'Attaches your file(s) above and turns it in on Google Classroom.' : 'For no-file assignments this marks them done on Classroom. For file assignments, add your finished file above first.'}</Text>
                 </>)}
+                <Text style={s.workHint}>“Mark as done here” (above) only silences reminders on your devices. “Turn in on Classroom” actually hands it in on Google Classroom.</Text>
               </View>
             )}
-            <Text style={s.workHint}>“Mark as done here” only silences reminders on your devices. “Turn in on Classroom” actually hands it in.</Text>
           </View>
         )}
         {!!item.url && <View style={{ paddingHorizontal: 16, marginTop: 14 }}><Btn kind="ghost" icon="open-outline" label="Open in Google Classroom" onPress={() => Linking.openURL(item.url)} /></View>}
@@ -496,16 +498,15 @@ const s = StyleSheet.create({
   searchWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, margin: 14, marginBottom: 2, paddingHorizontal: 14, height: 42, borderRadius: 21, backgroundColor: '#fff', borderWidth: 1, borderColor: C.line },
   search: { flex: 1, fontSize: 15, color: C.text, outlineStyle: 'none' },
   empty: { textAlign: 'center', color: C.sub, marginTop: 60, paddingHorizontal: 30, lineHeight: 21 },
-  classCard: { backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: C.line, overflow: 'hidden' },
-  classBanner: { height: 104, padding: 14, justifyContent: 'flex-end' },
-  classTitle: { color: '#fff', fontSize: 21, fontWeight: '500', paddingRight: 56 },
-  classSub: { color: '#ffffffdd', fontSize: 13, marginTop: 2 },
-  freshPill: { alignSelf: 'flex-start', marginTop: 6, backgroundColor: '#ffffff33', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
+  classCard: { backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 2 },
+  classBanner: { height: 112, paddingHorizontal: 16, paddingVertical: 14, flexDirection: 'row', alignItems: 'flex-end' },
+  classTitle: { color: '#fff', fontSize: 22, fontWeight: '500', letterSpacing: 0.2 },
+  freshPill: { position: 'absolute', top: 12, right: 14, backgroundColor: '#ffffff40', paddingHorizontal: 9, paddingVertical: 3, borderRadius: 11 },
   freshTxt: { color: '#fff', fontSize: 11.5, fontWeight: '700' },
-  avatar: { position: 'absolute', right: 14, top: 14, width: 48, height: 48, borderRadius: 24, backgroundColor: '#ffffffee', alignItems: 'center', justifyContent: 'center' },
-  avatarTxt: { fontSize: 22, fontWeight: '600' },
-  classFoot: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 12 },
-  classDue: { fontSize: 13, color: C.sub, flex: 1, marginRight: 8 },
+  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', marginLeft: 10, marginBottom: 1, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 2, shadowOffset: { width: 0, height: 1 }, elevation: 2 },
+  avatarTxt: { fontSize: 20, fontWeight: '600' },
+  classBody: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 14, minHeight: 52 },
+  classDue: { fontSize: 13.5, color: C.sub, flex: 1 },
   seg: { flexDirection: 'row', backgroundColor: '#fff', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line },
   segItem: { flex: 1, alignItems: 'center', paddingVertical: 13, borderBottomWidth: 3, borderBottomColor: 'transparent' },
   segOn: { borderBottomColor: C.blue },
