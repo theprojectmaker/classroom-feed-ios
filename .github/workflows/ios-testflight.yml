@@ -3,6 +3,9 @@
 # Run it from GitHub: Actions > "iOS build to TestFlight" > Run workflow.
 # Needs one repository secret: EXPO_TOKEN (expo.dev > Account settings > Access tokens).
 # Signing uses the certificates/profiles already stored on Expo (credentialsSource: remote).
+#
+# Two jobs on purpose: the Mac only builds (~10 min). The upload to Apple runs on a Linux runner,
+# because Expo's free submit queue can take over an hour and should not hold a scarce Mac.
 name: iOS build to TestFlight
 
 on:
@@ -12,19 +15,18 @@ on:
         description: Send the build to TestFlight when it finishes
         type: boolean
         default: true
-
-concurrency:
-  group: ios-build
-  cancel-in-progress: false
+      runner:
+        description: Mac runner label (try macos-15 or macos-26 if macos-latest has no free machine)
+        type: string
+        default: macos-latest
 
 jobs:
   build:
-    runs-on: macos-latest
-    timeout-minutes: 90
+    runs-on: ${{ inputs.runner || 'macos-latest' }}
+    timeout-minutes: 60
     env:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       EAS_SKIP_AUTO_FINGERPRINT: '1'
-      EXPO_PUBLIC_API_KEY: ${{ secrets.EXPO_PUBLIC_API_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -58,6 +60,28 @@ jobs:
           path: ${{ runner.temp }}/app.ipa
           retention-days: 7
 
-      - name: Send to TestFlight
-        if: ${{ inputs.submit }}
+  submit:
+    needs: build
+    if: ${{ inputs.submit }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (the submit step reads the app config)
+        run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-ipa
+          path: ${{ runner.temp }}
+
+      - name: Send to TestFlight (waits until Apple has the build)
         run: npx --yes eas-cli@latest submit --platform ios --profile production --path "$RUNNER_TEMP/app.ipa" --non-interactive

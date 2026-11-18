@@ -39,6 +39,9 @@
               "public.data"
             ]
           }
+        ],
+        "UIBackgroundModes": [
+          "remote-notification"
         ]
       }
     },
@@ -53,11 +56,19 @@
           "icon": "./assets/icon.png"
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Classroom Feed uses the camera so you can photograph finished work and attach it to an assignment.",
+          "photosPermission": "Classroom Feed lets you choose photos of finished work to attach to an assignment.",
+          "microphonePermission": false
+        }
+      ]
     ],
     "splash": {
-      "backgroundColor": "#FFFFFF",
-      "image": "./assets/icon.png",
+      "backgroundColor": "#1F5FEE",
+      "image": "./assets/splash.png",
       "resizeMode": "contain"
     },
     "owner": "solomonsasson",
@@ -65,6 +76,12 @@
       "eas": {
         "projectId": "703d363b-b587-4b9f-9dbf-3a01ee922f53"
       }
+    },
+    "runtimeVersion": "shell-2",
+    "updates": {
+      "url": "https://u.expo.dev/703d363b-b587-4b9f-9dbf-3a01ee922f53",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
     }
   }
 }

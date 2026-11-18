@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Notifications from 'expo-notifications';
 import * as DocumentPicker from 'expo-document-picker';
+import * as Updates from 'expo-updates';
 import { C, DEFAULTS, load, makeApi, save } from './src/lib';
 import { fileSize, openFile, saveLocal, removeLocal, resolveLocal, fileExists, downloadFile, saveBase64 } from './src/files';
 import { exportLibraryZip, importZipFile } from './src/ziplib';
@@ -60,6 +61,12 @@ function Main() {
     setCk(await load('ck', null));
     queueRef.current = await load('queue', []); lastSyncRef.current = await load('lastSync', 0);
     setReady(true);
+  })(); }, []);
+
+  // Over-the-air update: fetch a newer version of the app's code on launch and switch to it right away.
+  useEffect(() => { (async () => {
+    if (__DEV__ || Platform.OS === 'web' || !Updates.isEnabled) return;
+    try { const r = await Updates.checkForUpdateAsync(); if (r.isAvailable) { await Updates.fetchUpdateAsync(); await Updates.reloadAsync(); } } catch { /* no connection: keep the installed version */ }
   })(); }, []);
 
   const persistQueue = () => save('queue', queueRef.current);
