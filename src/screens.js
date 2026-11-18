@@ -175,7 +175,7 @@ export function ClassScreen({ name }) {
 
 /* ---------- One assignment / material ---------- */
 export function ItemScreen({ id }) {
-  const { items, pop, toggleSubmitted, pickAndUpload, openPreview, updateItem, deleteItem } = useContext(AppCtx);
+  const { items, pop, toggleSubmitted, turnIn, pickAndUpload, openPreview, updateItem, deleteItem } = useContext(AppCtx);
   const item = items.find((i) => i.id === id);
   if (!item) return <View style={{ flex: 1 }}><AppBar title="Not found" onBack={pop} /></View>;
   const color = courseColor(item.course);
@@ -236,9 +236,24 @@ export function ItemScreen({ id }) {
             {mine.map((f) => <Attachment key={f.id} f={f} mine onPress={() => openPreview(f, files)} />)}
             <View style={{ gap: 10, marginTop: mine.length ? 10 : 0 }}>
               <Btn kind="outline" icon="add" label="Add file" onPress={() => pickAndUpload(item)} />
-              <Btn icon={status === 'done' ? 'arrow-undo' : 'checkmark'} label={status === 'done' ? 'Unmark as done' : 'Mark as done'} onPress={() => toggleSubmitted(item)} />
+              <Btn kind="outline" icon={status === 'done' ? 'arrow-undo' : 'checkmark'} label={status === 'done' ? 'Unmark as done' : 'Mark as done here'} onPress={() => toggleSubmitted(item)} />
             </View>
-            <Text style={s.workHint}>Files you add sync to all your devices. Hand it in on Classroom, then mark it done here to stop the reminders.</Text>
+            {!item.mine && !!item.url && (
+              <View style={{ marginTop: 4, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.line, paddingTop: 12, gap: 8 }}>
+                {item.turnin === 'done' ? (
+                  <Text style={{ color: C.green, fontWeight: '700' }}>✓ Turned in on Classroom{item.turnin_note && !/^turned in$/i.test(item.turnin_note) ? ` · ${item.turnin_note}` : ''}</Text>
+                ) : item.turnin === 'queued' ? (<>
+                  <Text style={{ color: C.blue, fontWeight: '700' }}>Waiting to turn in…</Text>
+                  <Text style={s.workHint}>It turns in on Google Classroom the next time your PC checker runs (needs open Wi-Fi). You can cancel until then.</Text>
+                  <Btn kind="outline" icon="close" label="Cancel turn-in" onPress={() => turnIn(item, true)} />
+                </>) : (<>
+                  {(item.turnin === 'unsupported' || item.turnin === 'failed') && !!item.turnin_note && <Text style={{ color: C.red }}>{item.turnin_note}</Text>}
+                  <Btn icon="paper-plane-outline" label={mine.length ? 'Turn in on Classroom' : 'Turn in / Mark as done on Classroom'} onPress={() => turnIn(item)} />
+                  <Text style={s.workHint}>{mine.length ? 'Attaches your file(s) above and turns it in on Google Classroom.' : 'For no-file assignments this marks them done on Classroom. For file assignments, add your finished file above first.'}</Text>
+                </>)}
+              </View>
+            )}
+            <Text style={s.workHint}>“Mark as done here” only silences reminders on your devices. “Turn in on Classroom” actually hands it in.</Text>
           </View>
         )}
         {!!item.url && <View style={{ paddingHorizontal: 16, marginTop: 14 }}><Btn kind="ghost" icon="open-outline" label="Open in Google Classroom" onPress={() => Linking.openURL(item.url)} /></View>}

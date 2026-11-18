@@ -47,6 +47,8 @@ export function makeApi(cfg) {
     items: (since = 0) => call(`/api/items?since=${since}`),
     status: () => call('/api/status'),
     setSubmitted: (id, submitted) => call('/api/state', { method: 'POST', body: JSON.stringify({ id, submitted }) }),
+    /** Queue (or cancel) a real Google Classroom turn-in; the PC checker does it when it can reach Classroom. */
+    turnin: (id, cancel) => call('/api/turnin', { method: 'POST', body: JSON.stringify({ id, cancel: !!cancel }) }),
     registerPush: (token) => call('/api/register-push', { method: 'POST', body: JSON.stringify({ token }) }),
     /** Uploads the finished file you made for an assignment; every signed-in device then gets it. */
     upload: async (itemId, name, uri, mime) => {

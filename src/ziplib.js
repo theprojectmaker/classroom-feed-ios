@@ -8,7 +8,7 @@ const toBytes = (b64) => { const bin = atob(b64); const u = new Uint8Array(bin.l
 const toB64 = (u) => { let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
 /** File names keep their extension when shortened: a name cut to 80 characters lost ".pdf", and the preview then showed the raw bytes as text. */
 const safeFile = (name) => {
-  const clean = String(name).replace(/[^w.- ]+/g, '_');
+  const clean = String(name).replace(/[^\w.\- ]+/g, '_');
   const m = clean.match(/(.[A-Za-z0-9]{1,6})$/);
   const ext = m ? m[1] : '';
   const base = ext ? clean.slice(0, -ext.length) : clean;

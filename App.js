@@ -87,6 +87,7 @@ function Main() {
       const q = queueRef.current[0];
       try {
         if (q.type === 'state') await api.setSubmitted(q.id, q.submitted);
+        else if (q.type === 'turnin') await api.turnin(q.id, q.cancel);
         else if (q.type === 'upload') {
           const r = await api.upload(q.itemId, q.name, resolveLocal(q.uri), q.mime);
           setItems((cur) => { const next = cur.map((i) => {
@@ -206,6 +207,16 @@ function Main() {
     try { const r = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true }); if (!r.canceled) await uploadFor(item, r.assets[0]); } catch {}
   }, [uploadFor]);
 
+  /** Real Google Classroom turn-in: queued here, actually turned in by the PC checker when it can reach Classroom (open Wi-Fi). */
+  const turnIn = useCallback((item, cancel = false) => {
+    if (item.mine || !item.url) { notify('This item can’t be turned in on Classroom.'); return; }
+    updateItem(item.id, { turnin: cancel ? '' : 'queued', turnin_note: cancel ? '' : 'Waiting to turn in' });
+    queueRef.current = [...queueRef.current.filter((q) => q.type !== 'turnin' || q.id !== item.id), { type: 'turnin', id: item.id, cancel }];
+    persistQueue();
+    notify(cancel ? 'Turn-in canceled' : 'Will turn in on Classroom when you’re on open Wi-Fi');
+    sync();
+  }, [sync, notify, updateItem]);
+
   const handleZip = useCallback(async (uri) => {
     const imported = await importZipFile(uri);
     const known = new Set(itemsRef.current.map((i) => i.id));
@@ -255,12 +266,12 @@ function Main() {
 
   const goTab = (k) => { setStack([]); setTab(k); };
   const ctx = useMemo(() => ({
-    items, cfg, api, saved, onSaved, status, refreshing, checkInfo, ck, refresh: sync, toggleSubmitted, pickAndUpload, shareLibrary, onAuth,
+    items, cfg, api, saved, onSaved, status, refreshing, checkInfo, ck, refresh: sync, toggleSubmitted, turnIn, pickAndUpload, shareLibrary, onAuth,
     onSignOut: () => setCfg({ ...cfg, token: '' }),
     updateItem, deleteItem, openAdd: () => setAdding(true),
     openPreview: (file, list) => setPreview({ file, list: list && list.length ? list : [file] }), openClass: (name) => push({ t: 'class', name }), openItem: (id) => push({ t: 'item', id }),
     openNetwork: () => push({ t: 'network' }), pop,
-  }), [items, cfg, api, saved, onSaved, status, refreshing, checkInfo, ck, sync, toggleSubmitted, pickAndUpload, shareLibrary, onAuth, push, pop, updateItem, deleteItem]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [items, cfg, api, saved, onSaved, status, refreshing, checkInfo, ck, sync, toggleSubmitted, turnIn, pickAndUpload, shareLibrary, onAuth, push, pop, updateItem, deleteItem]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const top = stack[stack.length - 1];
   const dueSoon = items.filter((i) => isWork(i) && !i.submitted && i.dueAt && i.dueAt < Date.now() + 2 * 86400000).length;
