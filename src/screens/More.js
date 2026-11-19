@@ -28,6 +28,7 @@ export function MoreScreen() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [pushMsg, setPushMsg] = useState('');
+  const [showSignIn, setShowSignIn] = useState(false);
   const go = async () => { setBusy(true); setErr(''); try { await onAuth(mode, name.trim(), password, invite.trim()); setPassword(''); } catch (x) { setErr(x.message || 'Could not reach the server. Sign in on normal Wi-Fi.'); } setBusy(false); };
   const testPush = async () => {
     setPushMsg('Sending…');
@@ -56,6 +57,11 @@ export function MoreScreen() {
               <Text style={s.body}>Signed in as <Text style={{ fontWeight: '800' }}>{cfg.name || 'you'}</Text></Text>
               <Text style={s.rowSub}>Your classes, files and turn-ins stay in step on every device signed in to this account.</Text>
               <View style={{ marginTop: 12, alignItems: 'flex-start' }}><Btn small kind="outline" label="Sign out" onPress={signOut} /></View>
+            </>) : e.canReadCloud && !showSignIn ? (<>
+              {/* A copy with iCloud built in needs no account at all: say so instead of showing a form that cannot work at school. */}
+              <Text style={s.body}>This device is ready. Nothing to sign in to.</Text>
+              <Text style={s.rowSub}>Your classes, files and turn-ins travel through iCloud, which also works on the school Wi-Fi. Signing in only adds the faster direct connection on normal internet.</Text>
+              <View style={{ marginTop: 12, alignItems: 'flex-start' }}><Btn small kind="outline" label="Sign in anyway" onPress={() => setShowSignIn(true)} /></View>
             </>) : (<>
               <Text style={s.body}>{mode === 'in' ? 'Sign in with the same name and password on every device.' : 'Create your account once, on your first device. You need the invite code.'}</Text>
               {e.canReadCloud && <Text style={[s.rowSub, { marginTop: 6 }]}>Your classes already show without signing in on this device.</Text>}
