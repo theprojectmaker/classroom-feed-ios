@@ -147,13 +147,16 @@ export function RowIcon({ item, size = 40 }) {
 }
 
 const STATE_TONE = { turnedin: 'green', graded: 'green', excused: 'gray', done: 'gray', late: 'red', open: 'blue' };
-/** Where a piece of work stands, as a pill. Graded work shows its grade. */
-export function StatePill({ item }) {
+const STATE_COLOR = { turnedin: T.green, graded: T.green, excused: T.sub, done: T.sub, late: T.red, open: T.brand };
+/** Where a piece of work stands. In lists (plain) it is just coloured words; elsewhere a pill. Graded work shows its grade. */
+export function StatePill({ item, plain }) {
   if (!isWork(item)) return null;
   const s = workState(item);
-  if (item.turnin === 'queued') return <Pill label="Turning in…" tone="blue" icon="sync" />;
+  if (item.turnin === 'queued') return plain ? <Text style={[st.stateTxt, { color: T.brand }]}>Turning in…</Text> : <Pill label="Turning in…" tone="blue" icon="sync" />;
   if (s === 'open') return null;
-  return <Pill label={s === 'graded' && item.grade ? item.grade : STATE_LABEL[s]} tone={STATE_TONE[s]} icon={s === 'late' ? 'alert-circle' : s === 'graded' ? 'ribbon' : 'checkmark-circle'} />;
+  const label = s === 'graded' && item.grade ? item.grade : STATE_LABEL[s];
+  if (plain) return <Text style={[st.stateTxt, { color: STATE_COLOR[s] }]} numberOfLines={1}>{label}</Text>;
+  return <Pill label={label} tone={STATE_TONE[s]} icon={s === 'late' ? 'alert-circle' : s === 'graded' ? 'ribbon' : 'checkmark-circle'} />;
 }
 
 /**
@@ -178,10 +181,12 @@ export function WorkRow({ item, onPress, onLongPress, showCourse, last, note }) 
           {!!note && <Text style={[st.rowSub, { color: T.red, fontWeight: '600' }]} numberOfLines={1}>{note}</Text>}
         </View>
         <View style={st.rowRight}>
-          {item.starred && <Icon n="pin" s={14} c={T.amberFill} />}
-          {isNew(item) && <Pill label="NEW" tone="blue" />}
-          <StatePill item={item} />
-          {!!item.grade && s !== 'graded' && <Pill label={item.grade} tone="green" icon="ribbon" />}
+          <View style={st.rowRightTop}>
+            {item.starred && <Icon n="pin" s={13} c={T.amberFill} />}
+            {isNew(item) && <View style={st.newDot} />}
+            <StatePill item={item} plain />
+          </View>
+          {!!item.grade && s !== 'graded' && <Text style={[st.stateTxt, { color: T.green }]} numberOfLines={1}>{item.grade}</Text>}
         </View>
       </View>
     </Pressable>
@@ -243,7 +248,10 @@ export const st = StyleSheet.create({
   rowTitle: { fontSize: 17, color: T.ink, lineHeight: 22, letterSpacing: -0.3 },
   rowSub: { fontSize: 13.5, color: T.sub, marginTop: 2 },
   rowDue: { fontSize: 13.5, color: T.text, marginTop: 2, fontWeight: '500' },
-  rowRight: { alignItems: 'flex-end', gap: 5, maxWidth: 124 },
+  rowRight: { alignItems: 'flex-end', gap: 3, maxWidth: 110, paddingLeft: 4 },
+  rowRightTop: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  newDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: T.brand },
+  stateTxt: { fontSize: 14, fontWeight: '500' },
   dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: T.redFill },
   empty: { alignItems: 'center', paddingVertical: 40, paddingHorizontal: 30, gap: 6 },
   emptyIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: T.soft, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },

@@ -138,10 +138,12 @@ export function cleanBody(body) {
 
 /** "CATHERINE LEONG (North High)" -> "Catherine Leong": a teacher's name the way you would write it. */
 export const niceName = (s) => String(s || '').replace(/\s*\(.*?\)\s*$/, '').trim().toLowerCase().replace(/(^|[\s'-])([a-z])/g, (m, a, b) => a + b.toUpperCase());
+/** Classroom prints "Unknown User" for an account it cannot name: that is not a person to show. */
+export const realName = (s) => !!String(s || '').trim() && !/^unknown user$/i.test(String(s).trim());
 /** The teacher of a class: whoever posted most of what is in it. */
 export function teacherOf(items) {
   const n = {};
-  for (const i of items) if (i.author) n[i.author] = (n[i.author] || 0) + 1;
+  for (const i of items) if (realName(i.author)) n[i.author] = (n[i.author] || 0) + 1;
   const top = Object.entries(n).sort((a, b) => b[1] - a[1])[0];
   return top ? niceName(top[0]) : '';
 }

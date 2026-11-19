@@ -4,7 +4,7 @@ import React, { useContext, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AppCtx } from '../ctx';
 import { T, classPair, hair } from '../theme';
-import { Card, Chip, DONE_STATES, Empty, GroupLabel, Icon, LinearGradient, RowIcon, Seg, StatePill, WorkRow, gradeParts, gradeSummary, isOpen, isWork, monthKey, monthLabel, niceName, postedDetail, shortDue, teacherOf, workState } from '../ui';
+import { Card, Chip, DONE_STATES, Empty, GroupLabel, Icon, LinearGradient, RowIcon, Seg, StatePill, WorkRow, gradeParts, gradeSummary, isOpen, isWork, monthKey, monthLabel, niceName, postedDetail, realName, shortDue, teacherOf, workState } from '../ui';
 
 const posted = (i) => i.posted_at || i.created_at || 0;
 /** "Today, 10:19 AM" / "Nov 17, 9:28 AM" — when it was posted, as a line of its own. */
@@ -43,7 +43,7 @@ function StreamPost({ item, onPress, onLongPress }) {
       </View>
       <View style={{ alignItems: 'flex-end', gap: 4 }}>
         {item.starred && <Icon n="pin" s={14} c={T.amberFill} />}
-        <StatePill item={item} />
+        <StatePill item={item} plain />
       </View>
     </Pressable>
   );
@@ -63,6 +63,21 @@ export function ClassScreen({ name }) {
   const missing = useMemo(() => mine.filter((i) => isOpen(i) && workState(i) === 'late'), [mine]);
   const groups = useMemo(() => {
     const list = mine.filter((i) => i.kind !== 'announcement' && (kind === 'all' || (kind === 'work' ? isWork(i) : !isWork(i))));
+    // Like Classroom: posts sit under their topic, in the order the teacher arranged them. A post that has not been sorted
+    // into a topic yet (just posted) waits at the top. Until the topics have been read, months are the fallback.
+    if (list.some((i) => (i.io ?? -1) >= 0)) {
+      const m = new Map();
+      for (const i of list) {
+        const placed = (i.io ?? -1) >= 0;
+        const key = placed ? `t${i.to}` : 'new';
+        let g = m.get(key);
+        if (!g) { g = { k: key, label: placed ? (i.topic || 'No topic') : 'Just posted', ord: placed ? i.to : -1, list: [] }; m.set(key, g); }
+        g.list.push(i);
+      }
+      const byTopic = [...m.values()].sort((a, b) => a.ord - b.ord);
+      byTopic.forEach((g) => g.list.sort((a, b) => (a.io ?? 1e9) - (b.io ?? 1e9) || posted(b) - posted(a)));
+      return byTopic;
+    }
     const out = [];
     for (const i of list) {
       const k = monthKey(i);
@@ -72,6 +87,15 @@ export function ClassScreen({ name }) {
     }
     return out;
   }, [mine, kind]);
+  // People: the teachers (read off the class's People page; the names on its posts when that has not been read yet).
+  const cid = useMemo(() => { const u = (mine.find((i) => i.url) || {}).url || ''; return (u.match(/\/c\/([^/]+)/) || [])[1] || ''; }, [mine]);
+  const roster = (e.remote && e.remote.people && cid && e.remote.people[cid]) || null;
+  const teachers = useMemo(() => {
+    if (roster && roster.t && roster.t.length) return roster.t.map(niceName);
+    const n = {};
+    for (const i of mine) if (realName(i.author)) n[i.author] = (n[i.author] || 0) + 1;
+    return Object.entries(n).sort((a, b) => b[1] - a[1]).map(([k]) => niceName(k));
+  }, [mine, roster]);
   const scored = useMemo(() => mine.filter((i) => gradeParts(i.grade)), [mine]);
   const sum = useMemo(() => gradeSummary(mine), [mine]);
   const waiting = useMemo(() => mine.filter((i) => isWork(i) && workState(i) === 'turnedin' && !gradeParts(i.grade)).length, [mine]);
@@ -86,7 +110,7 @@ export function ClassScreen({ name }) {
         <Text style={s.bannerTitle} numberOfLines={2}>{name}</Text>
         <Text style={s.bannerSub}>{[teacher, `${mine.length} post${mine.length === 1 ? '' : 's'}`, missing.length ? `${missing.length} missing` : ''].filter(Boolean).join(' · ')}</Text>
       </LinearGradient>
-      <View style={s.segWrap}><Seg value={tab} onChange={setTab} options={[['stream', 'Stream'], ['classwork', 'Classwork'], ['grades', 'Grades']]} /></View>
+      <View style={s.segWrap}><Seg value={tab} onChange={setTab} options={[['stream', 'Stream'], ['classwork', 'Classwork'], ['people', 'People'], ['grades', 'Grades']]} /></View>
 
       {tab === 'stream' ? (
         <ScrollView contentContainerStyle={s.page}>
@@ -118,6 +142,26 @@ export function ClassScreen({ name }) {
                 <Card>{g.list.map((i, k) => <WorkRow key={i.id} item={i} last={k === g.list.length - 1} onPress={() => openItem(i.id)} onLongPress={() => e.togglePin(i)} />)}</Card>
               </View>
             ))}
+          </View>
+        </ScrollView>
+      ) : tab === 'people' ? (
+        <ScrollView contentContainerStyle={s.page}>
+          <View style={s.wrap}>
+            <Text style={s.pHead}>Teachers</Text>
+            <View style={s.pRule} />
+            {teachers.length === 0 && <Text style={s.pNone}>Your teacher’s name shows up here after the PC has looked at this class.</Text>}
+            {teachers.map((t) => (
+              <View key={t} style={s.pRow}>
+                <View style={[s.pAvatar, { backgroundColor: pair[0] }]}><Text style={s.pAvatarTxt}>{t.charAt(0).toUpperCase()}</Text></View>
+                <Text style={s.pName}>{t}</Text>
+              </View>
+            ))}
+            <View style={s.pHeadRow}>
+              <Text style={s.pHead}>Classmates</Text>
+              {!!(roster && roster.n) && <Text style={s.pCount}>{roster.n} student{roster.n === 1 ? '' : 's'}</Text>}
+            </View>
+            <View style={s.pRule} />
+            <Text style={s.pNote}>{roster && roster.n ? 'Your classmates’ names stay in Google Classroom. This app only keeps how many there are, so other students’ names are not copied anywhere.' : 'The number of students shows up here after the PC has looked at this class.'}</Text>
           </View>
         </ScrollView>
       ) : (
@@ -192,6 +236,16 @@ const s = StyleSheet.create({
   postFilesTxt: { fontSize: 13.5, color: T.sub },
   postLine: { fontSize: 15.5, color: T.ink, lineHeight: 20, letterSpacing: -0.2 },
   postKind: { color: T.sub },
+  pHead: { fontSize: 26, fontWeight: '600', color: T.ink, letterSpacing: -0.3 },
+  pHeadRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 30 },
+  pCount: { fontSize: 15, color: T.sub },
+  pRule: { height: 1.5, backgroundColor: T.brand, marginTop: 8, marginBottom: 6, borderRadius: 1 },
+  pRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 11 },
+  pAvatar: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  pAvatarTxt: { color: '#fff', fontSize: 17, fontWeight: '600' },
+  pName: { fontSize: 17, color: T.ink, letterSpacing: -0.3 },
+  pNone: { fontSize: 15, color: T.sub, paddingVertical: 12 },
+  pNote: { fontSize: 14, color: T.sub, lineHeight: 20, paddingVertical: 10 },
   sum: { flexDirection: 'row', padding: 18, gap: 16, alignItems: 'center' },
   sumL: { fontSize: 13, color: T.sub, textTransform: 'uppercase', letterSpacing: 0.2 },
   sumBig: { fontSize: 44, fontWeight: '700', color: T.ink, letterSpacing: -1, marginTop: 2 },

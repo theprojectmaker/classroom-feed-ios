@@ -30,17 +30,16 @@ export function ScanStrip() {
   const v = scanView(e, now);
   const c = connInfo(e, now);
   return (
-    <Card style={s.scan}>
+    <View style={s.scan}>
       <View style={[s.scanIcon, { backgroundColor: v.error ? T.redSoft : v.fresh ? T.greenSoft : T.brandSoft }]}>
-        {v.busy ? <ActivityIndicator color={T.brand} /> : <Icon n={v.error ? 'alert' : v.fresh ? 'checkmark' : 'sync'} s={21} c={v.error ? T.red : v.fresh ? T.green : T.brand} />}
+        {v.busy ? <ActivityIndicator size="small" color={T.brand} /> : <Icon n={v.error ? 'alert' : v.fresh ? 'checkmark' : 'sync'} s={17} c={v.error ? T.red : v.fresh ? T.green : T.brand} />}
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={s.scanTitle} numberOfLines={2}>{v.busy ? v.title : 'Google Classroom'}</Text>
-        <Text style={[s.scanLine, v.error && { color: T.red }]} numberOfLines={3}>{v.line}</Text>
-        <Text style={s.scanPc} numberOfLines={1}>{c.pcLine}</Text>
+        <Text style={[s.scanLine, v.error && { color: T.red }]} numberOfLines={2}>{v.busy ? `${v.title} ${v.line}` : v.line}</Text>
+        {!v.busy && <Text style={s.scanPc} numberOfLines={1}>{c.pcLine}</Text>}
       </View>
-      {!v.busy && <Btn small kind="soft" label="Check now" onPress={() => e.scanNow()} />}
-    </Card>
+      {!v.busy && <Pressable onPress={() => e.scanNow()} hitSlop={8} style={({ pressed }) => pressed && { opacity: 0.5 }}><Text style={s.scanBtn}>Check now</Text></Pressable>}
+    </View>
   );
 }
 
@@ -77,14 +76,7 @@ export function ClassesScreen() {
   const cols = cw >= 1000 ? 3 : cw >= 620 ? 2 : 1;
   const cardW = Math.floor((cw - 32 - 14 * (cols - 1)) / cols) - 1; // a hair under, so rounding never drops the last card to the next row
   const pinned = useMemo(() => items.filter((i) => i.starred), [items]);
-  const d = useMemo(() => {
-    const open = items.filter(isOpen);
-    const today0 = new Date(now); today0.setHours(0, 0, 0, 0);
-    const end = today0.getTime() + 86400000;
-    return { assigned: open.filter((i) => workState(i) !== 'late').length, missing: open.filter((i) => workState(i) === 'late').length, today: open.filter((i) => i.dueAt && i.dueAt >= now && i.dueAt < end).length };
-  }, [items, now]);
   const first = String(cfg.name || '').split(/[\s._-]/)[0];
-  const tiles = [['Assigned', d.assigned, T.brand, 'todo'], ['Missing', d.missing, d.missing ? T.red : T.faint, 'missing'], ['Due today', d.today, d.today ? T.amber : T.faint, 'todo']];
 
   return (
     <View style={{ flex: 1 }}>
@@ -105,21 +97,12 @@ export function ClassesScreen() {
             </Card>
           )}
           <ScanStrip />
-          <View style={s.tiles}>
-            {tiles.map(([label, n, color, seg]) => (
-              <Pressable key={label} onPress={() => e.goTab('todo', seg)} style={({ pressed }) => [s.tile, pressed && { opacity: 0.6 }]}>
-                <Text style={[s.tileN, { color }]}>{n}</Text>
-                <Text style={s.tileL} numberOfLines={1}>{label}</Text>
-              </Pressable>
-            ))}
-          </View>
-
           {pinned.length > 0 && (<>
             <SectionTitle title="Pinned" />
             <Card>{pinned.map((i, k) => <WorkRow key={i.id} item={i} showCourse last={k === pinned.length - 1} onPress={() => openItem(i.id)} onLongPress={() => e.togglePin(i)} />)}</Card>
           </>)}
 
-          <SectionTitle title="Your classes" style={pinned.length ? null : { marginTop: 22 }} />
+          <View style={{ height: pinned.length ? 24 : 8 }} />
           {classes.length === 0 && <Empty icon="school-outline" title="No classes yet" text="They appear after the first sync. Pull down to refresh, or tap Check now." />}
           <View style={s.grid}>
             {classes.map((c) => (
@@ -158,15 +141,11 @@ const s = StyleSheet.create({
   conn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 11, height: 32, borderRadius: 16, backgroundColor: '#fff' },
   connDot: { width: 8, height: 8, borderRadius: 4 },
   connTxt: { fontSize: 13, fontWeight: '600', color: T.text },
-  scan: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
-  scanIcon: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
-  scanTitle: { fontSize: 16, fontWeight: '600', color: T.ink, letterSpacing: -0.2 },
-  scanLine: { fontSize: 13.5, color: T.sub, marginTop: 1, lineHeight: 18 },
-  scanPc: { fontSize: 12.5, color: T.faint, marginTop: 2 },
-  tiles: { flexDirection: 'row', gap: 10, marginTop: 10 },
-  tile: { flex: 1, backgroundColor: '#fff', borderRadius: T.radius, paddingVertical: 11, paddingHorizontal: 14 },
-  tileN: { fontSize: 26, fontWeight: '700', letterSpacing: -0.4 },
-  tileL: { fontSize: 13, color: T.sub, marginTop: 1 },
+  scan: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 4, paddingVertical: 6 },
+  scanIcon: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  scanLine: { fontSize: 14.5, color: T.text, lineHeight: 19 },
+  scanPc: { fontSize: 12.5, color: T.faint, marginTop: 1 },
+  scanBtn: { fontSize: 15, color: T.brand, fontWeight: '500' },
   note: { padding: 18, gap: 10, marginBottom: 12 },
   noteTitle: { fontSize: 18, fontWeight: '700', color: T.ink },
   noteTxt: { fontSize: 15, color: T.sub, lineHeight: 21 },

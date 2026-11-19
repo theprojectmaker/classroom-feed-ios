@@ -159,7 +159,7 @@ export function useEngine({ onOpenItem }) {
   const applyIncoming = useCallback((got, full, quiet) => {
     if (!got || !got.length) return;
     const known = new Set(r.items.map((i) => i.id));
-    const brandNew = got.filter((i) => !known.has(i.id) && i.kind !== 'email');
+    const brandNew = got.filter((i) => !known.has(i.id) && i.kind !== 'email' && (i.created_at || 0) > Date.now() - 2 * DAY); // an old post turning up late is not news
     // The "N new" sheet is for news. A big batch at once is this device catching up (first sync of a new version), not news.
     if (!quiet && known.size && brandNew.length && brandNew.length <= 25) setFresh((f) => { const have = new Set(f.map((x) => x.id)); return [...f, ...brandNew.filter((x) => !have.has(x.id))].slice(0, 40); });
     merge(got, full);
@@ -225,7 +225,7 @@ export function useEngine({ onOpenItem }) {
     if (r.outbox.length) { const res = await api.ops(r.outbox.map(wire)); ackOps(res.done || []); }
     const st = await api.status();
     if (st.ck) setCk({ ...st.ck, ...(st.ckw || {}) });
-    setRemote({ lib: st.lib || null, scan: st.scan || {}, pc: st.pc || { seen: st.pcSeen || 0, busy: '' }, lastNew: st.lastNew || 0, ts: Date.now(), via: 'bot' });
+    setRemote({ lib: st.lib || null, scan: st.scan || {}, pc: st.pc || { seen: st.pcSeen || 0, busy: '' }, lastNew: st.lastNew || 0, people: st.people || null, ts: Date.now(), via: 'bot' });
     const ver = (st.lib && st.lib.ver) || 0;
     if (full || ver !== botLibVer.current) {
       const res = await api.items(lastSync.current);
