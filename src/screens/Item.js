@@ -93,6 +93,7 @@ export function ItemScreen({ id }) {
   const e = useContext(AppCtx);
   const { items, pop, openPreview, updateItem, deleteItem, notify } = e;
   const [askEmpty, setAskEmpty] = useState(false);
+  const [askResubmit, setAskResubmit] = useState(false);
   const item = items.find((i) => i.id === id);
   if (!item) return <View style={{ flex: 1 }}><Header title="Not found" onBack={pop} /></View>;
   const pair = classPair(item.course);
@@ -102,7 +103,8 @@ export function ItemScreen({ id }) {
   const theirs = files.filter((f) => f.origin !== 'upload');
   const mine = files.filter((f) => f.origin === 'upload');
   const tv = turninView(e, item);
-  const handedIn = ws === 'turnedin' || ws === 'graded';
+  const graded = ws === 'graded', turnedIn = ws === 'turnedin';
+  const handedIn = turnedIn || graded;
   const queued = tv.state === 'queued';
   const canClassroom = work && !item.mine && !!item.url;
   const sending = mine.some((f) => f.pending);
@@ -161,9 +163,10 @@ export function ItemScreen({ id }) {
           {work && (<>
             <SectionTitle title="Your work" />
             <Card style={{ padding: 16, gap: 14 }}>
-              {mine.length > 0 && <View style={{ gap: 10 }}>{mine.map((f) => <MyFile key={f.id} item={item} f={f} locked={queued || handedIn} onPress={() => openPreview(f, files)} />)}</View>}
+              {mine.length > 0 && <View style={{ gap: 10 }}>{mine.map((f) => <MyFile key={f.id} item={item} f={f} locked={queued || turnedIn} onPress={() => openPreview(f, files)} />)}</View>}
 
-              {!handedIn && !queued && (
+              {/* Graded work can still take a new file (Classroom lets you resubmit); work that is turned in and waiting cannot. */}
+              {!turnedIn && !queued && (
                 <View style={s.addRow}>
                   <Btn kind="soft" icon="document-attach-outline" label="Add file" onPress={pickFile} style={{ flex: 1 }} />
                   <Btn kind="soft" icon="images-outline" label="Photos" onPress={pickPhotos} style={{ flex: 1 }} />
@@ -173,17 +176,43 @@ export function ItemScreen({ id }) {
 
               {canClassroom && (<>
                 {(mine.length > 0 || queued || handedIn || tv.failed) && <Line />}
-                {tv.state === 'done' || handedIn ? (
+                {queued ? (<>
+                  <TurnInSteps tv={tv} />
+                  <Btn kind="outline" small icon="close" label="Cancel the turn-in" onPress={() => e.cancelTurnIn(item)} />
+                </>) : turnedIn || (tv.state === 'done' && !graded) ? (
                   <View style={[s.result, { backgroundColor: T.greenSoft }]}>
                     <Icon n="checkmark-circle" s={24} c={T.green} />
                     <View style={{ flex: 1 }}>
-                      <Text style={[s.resultTitle, { color: T.green }]}>{ws === 'graded' ? `Graded${item.grade ? ' · ' + item.grade : ''}` : 'Turned in on Google Classroom'}</Text>
+                      <Text style={[s.resultTitle, { color: T.green }]}>Turned in on Google Classroom</Text>
                       {!!(tv.state === 'done' && tv.at) && <Text style={s.resultSub}>{tv.note && !/^turned in$/i.test(tv.note) ? tv.note + ' · ' : ''}{whenLabel(tv.at)}</Text>}
                     </View>
                   </View>
-                ) : queued ? (<>
-                  <TurnInSteps tv={tv} />
-                  <Btn kind="outline" small icon="close" label="Cancel the turn-in" onPress={() => e.cancelTurnIn(item)} />
+                ) : graded ? (<>
+                  {tv.failed && (
+                    <View style={[s.result, { backgroundColor: T.redSoft }]}>
+                      <Icon n="alert-circle" s={22} c={T.red} />
+                      <View style={{ flex: 1 }}><Text style={[s.resultTitle, { color: T.red }]}>Your file was not sent</Text><Text style={s.resultSub}>{tv.note}</Text></View>
+                    </View>
+                  )}
+                  <View style={[s.result, { backgroundColor: T.greenSoft }]}>
+                    <Icon n="checkmark-circle" s={24} c={T.green} />
+                    <View style={{ flex: 1 }}><Text style={[s.resultTitle, { color: T.green }]}>{`Graded${item.grade ? ' · ' + item.grade : ''}`}</Text></View>
+                  </View>
+                  {/* Your teacher already graded it, so a normal turn-in has nothing to do. Handing work in again is a choice: say so, and ask first. */}
+                  {mine.length === 0 ? (
+                    <Text style={s.hint}>Your teacher already graded this one. To hand in new work for it anyway, add the file above.</Text>
+                  ) : askResubmit ? (
+                    <View style={{ gap: 10 }}>
+                      <Text style={s.hint}>This sends your file{mine.length > 1 ? 's' : ''} to your teacher and marks the work as turned in again on Google Classroom.</Text>
+                      <View style={s.addRow}>
+                        <Btn kind="outline" label="Not now" onPress={() => setAskResubmit(false)} style={{ flex: 1 }} />
+                        <Btn icon="paper-plane" label="Yes, resubmit" onPress={() => { setAskResubmit(false); e.turnIn(item, { resubmit: true }); }} style={{ flex: 1.4 }} />
+                      </View>
+                    </View>
+                  ) : (<>
+                    <Text style={s.hint}>Your teacher already graded this one, so your file{mine.length > 1 ? 's have' : ' has'} not been sent. You can still hand it in again.</Text>
+                    <Btn icon="paper-plane" label={sending ? `Resubmit when sent (${mine.length} file${mine.length === 1 ? '' : 's'})` : `Resubmit with ${mine.length} file${mine.length === 1 ? '' : 's'}`} onPress={() => setAskResubmit(true)} />
+                  </>)}
                 </>) : (<>
                   {tv.failed && (
                     <View style={[s.result, { backgroundColor: T.redSoft }]}>

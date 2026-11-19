@@ -14,8 +14,9 @@ export const kindOf = (i) => (i.kind === 'announcement' ? 'Announcements' : i.ki
  */
 export function workState(i) {
   const s = String(i.status || '').toLowerCase();
+  if (/turned in|handed in/.test(s)) return 'turnedin'; // in the teacher's hands — also after a resubmit, while an older grade still shows
   if (/graded|returned/.test(s) || (i.grade && !/missing/.test(s))) return 'graded';
-  if (i.turnin === 'done' || /turned in|handed in/.test(s)) return 'turnedin';
+  if (i.turnin === 'done') return 'turnedin';
   if (i.submitted) return 'done';
   if (/missing/.test(s) || (i.dueAt && i.dueAt < Date.now())) return 'late';
   return 'open';

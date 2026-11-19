@@ -21,13 +21,13 @@ on:
         type: boolean
         default: true
       runner:
-        description: Mac runner label (macos-15 gets a machine fastest; macos-latest has sat queued for 10 minutes)
+        description: Mac runner label (macos-26 has the Xcode this Expo SDK asks for and gets a machine fastest; macos-15 and macos-latest have sat queued for 10 minutes)
         type: string
-        default: macos-15
+        default: macos-26
 
 jobs:
   build:
-    runs-on: ${{ inputs.runner || 'macos-15' }}
+    runs-on: ${{ inputs.runner || 'macos-26' }}
     timeout-minutes: 60
     outputs:
       sent: ${{ steps.direct.outputs.sent }}
