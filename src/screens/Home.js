@@ -12,7 +12,7 @@ export function ConnChip({ light }) {
   const now = useNow(10000);
   const c = connInfo(e, now);
   const color = c.tone === 'green' ? '#18B877' : c.tone === 'red' ? T.red : '#A0A8B8';
-  const waiting = e.outbox.length + e.jobs.length;
+  const waiting = e.outbox.filter((o) => o.t !== 'hello').length + e.jobs.length; // the app's own status report is not something "you" are sending
   return (
     <Pressable onPress={e.openConnection} hitSlop={8} style={[s.conn, light && { backgroundColor: '#ffffff26', borderColor: '#ffffff40' }]}>
       <View style={[s.connDot, { backgroundColor: color }]} />
@@ -62,6 +62,7 @@ export function HomeScreen() {
     const latest = items.filter((i) => isNew(i) || hasUpdate(i)).sort((a, c) => Math.max(c.created_at || 0, c.changed_at || 0) - Math.max(a.created_at || 0, a.changed_at || 0));
     return { missing: late.length, today: b('Today'), week: b('Today') + b('Tomorrow') + b('This week'), todo: open.length, up: [...late.slice(0, 2), ...next, ...undated].slice(0, 6), latest: latest.slice(0, 6) };
   }, [items, now]); // eslint-disable-line react-hooks/exhaustive-deps
+  const conn = connInfo(e, now);
   const hour = new Date(now).getHours();
   const hello = hour < 5 ? 'Still up' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   const first = String(cfg.name || '').split(/[\s._-]/)[0];
@@ -99,10 +100,16 @@ export function HomeScreen() {
       {!cfg.token && !e.canReadCloud ? (
         <Card style={{ padding: 20, gap: 10 }}>
           <Text style={s.cardTitle}>Sign in to get started</Text>
-          <Text style={s.cardTxt}>Sign in once on normal Wi-Fi. After that your classes, files and turn-ins also work on the school Wi-Fi, through iCloud.</Text>
+          <Text style={s.cardTxt}>Sign in once on normal Wi-Fi. On the school Wi-Fi, update Classroom Feed in the TestFlight app instead: the newest version works there right away, with nothing to set up.</Text>
           <Btn label="Sign in" icon="log-in-outline" onPress={() => e.goTab('more')} />
         </Card>
       ) : (<>
+        {conn.stuck && (
+          <Card style={{ padding: 18, gap: 8, marginBottom: 14 }}>
+            <Text style={s.cardTitle}>Update Classroom Feed in TestFlight</Text>
+            <Text style={s.cardTxt}>This copy of the app can’t use iCloud yet, so nothing can arrive on this Wi-Fi. Open the TestFlight app and tap Update next to Classroom Feed. The new version works here right away, with nothing to set up.</Text>
+          </Card>
+        )}
         <ScanCard />
         <View style={s.tiles}>
           {tiles.map(([label, n, color, seg, icon]) => (

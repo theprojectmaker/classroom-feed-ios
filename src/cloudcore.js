@@ -18,11 +18,20 @@ let skewMs = 0; // this device's clock vs Apple's (a signed request is refused w
 export const canRead = (cfg) => !!(cfg && cfg.container && (cfg.token || (cfg.keyId && cfg.d)));
 export const canWrite = (cfg) => !!(cfg && cfg.container && cfg.keyId && cfg.d);
 
+/** Makes one signature and throws it away. The first signature on a device is the slow one (the maths tables are built
+ *  then), so doing it ahead of time keeps the first real turn-in quick. Returns how long it took, in ms. */
+export function warmUp(cfg) {
+  if (!canWrite(cfg)) return -1;
+  const t0 = Date.now();
+  signedHeaders(cfg, '/warm-up', '{}', 0);
+  return Date.now() - t0;
+}
+
 async function call(cfg, op, payload, { ms = 20000, signed = false } = {}) {
   const sub = `/database/1/${cfg.container}/${cfg.environment || 'development'}/public/${op}`;
   const body = JSON.stringify(payload);
   const useKey = signed || !cfg.token;
-  if (useKey && !canWrite(cfg)) { const e = new Error('It will send as soon as the app has been on normal internet once'); e.code = 'NO_KEY'; throw e; }
+  if (useKey && !canWrite(cfg)) { const e = new Error('It will send once Classroom Feed is updated in TestFlight'); e.code = 'NO_KEY'; throw e; }
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), ms);
   let res, text;

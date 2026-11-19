@@ -54,7 +54,7 @@ export async function saveLocal(uri, name) {
  * back to building the file in memory, which is fine for ordinary sizes.
  */
 export async function saveFromCloud(cfg, file, onProgress) {
-  if (!canRead(cfg)) { const e = new Error('iCloud is not set up on this device yet'); e.code = 'NO_KEY'; throw e; }
+  if (!canRead(cfg)) { const e = new Error('This copy of the app can’t open files on this Wi-Fi. Update Classroom Feed in TestFlight.'); e.code = 'NO_KEY'; throw e; }
   const chunks = file.chunks || Math.max(1, Math.ceil((file.size || 0) / CHUNK_RAW));
   const prefix = file.p || `fc-${file.id}`;
   const group = async (i) => {

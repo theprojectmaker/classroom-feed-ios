@@ -31,8 +31,10 @@ export function MoreScreen() {
   const go = async () => { setBusy(true); setErr(''); try { await onAuth(mode, name.trim(), password, invite.trim()); setPassword(''); } catch (x) { setErr(x.message || 'Could not reach the server. Sign in on normal Wi-Fi.'); } setBusy(false); };
   const testPush = async () => {
     setPushMsg('Sending…');
+    // Not straight to the bot from here (school Wi-Fi)? Then the test goes the same way a turn-in does: through iCloud.
+    if (e.net.mode !== 'bot' && e.canWriteCloud) { e.pushTestViaRequest(); setPushMsg('Asked through iCloud. It should pop up within about ten seconds (your PC has to be on).'); return; }
     try { const r = await e.api.pushTest(); setPushMsg(r.sent ? `Sent to ${r.sent} device${r.sent === 1 ? '' : 's'} — it should pop up in a few seconds.` : 'No device is registered for notifications yet. Allow notifications, then open the app once on normal Wi-Fi.'); }
-    catch { setPushMsg('That needs normal internet (the test goes straight to the bot).'); }
+    catch { setPushMsg('No connection right now. Try again in a moment.'); }
   };
   return (
     <View style={{ flex: 1 }}>
@@ -80,7 +82,7 @@ export function MoreScreen() {
 
           <SectionTitle title="App" />
           <Card style={{ padding: 16, gap: 10 }}>
-            <Text style={s.rowSub}>Updates install by themselves when you open the app on normal internet.{ota.id ? `\nInstalled update: ${String(ota.id).slice(0, 8)}` : ''}</Text>
+            <Text style={s.rowSub}>New versions arrive through the TestFlight app, which also works on the school Wi-Fi. Small fixes install by themselves on normal internet.{ota.id ? `\nInstalled update: ${String(ota.id).slice(0, 8)}` : ''}</Text>
             <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
               <Btn small kind="soft" icon="cloud-download-outline" label={ota.checking ? 'Checking…' : ota.ready ? 'Restart to update' : 'Check for an update'} onPress={ota.ready ? ota.apply : ota.check} />
               <Btn small kind="soft" icon="add" label="Add my own assignment" onPress={openAdd} />
@@ -123,9 +125,9 @@ export function ConnectionScreen() {
             <Row ok={net.mode === 'bot' || net.mode === 'icloud' ? true : net.mode === 'offline' ? false : null} title={c.label} sub={c.detail} />
             <Line />
             <Row ok={cfg.icloudOnly ? null : net.bot} title="Straight to your bot" sub={cfg.icloudOnly ? 'Switched off (school mode)' : net.bot ? 'Reachable — the fast route' : net.bot === false ? 'Blocked on this network (normal at school)' : 'Not checked yet'} />
-            <Row ok={net.cloud} title="Through iCloud — receiving" sub={net.cloud ? 'Posts, grades and files arrive this way at school' : e.canReadCloud ? (net.cloudErr || 'Not reachable right now') : 'Sets itself up the first time the app opens on normal internet'} />
-            <Row ok={e.canWriteCloud ? true : null} title="Through iCloud — sending" sub={e.canWriteCloud ? 'Turn-ins, your files and Scan can be sent from school' : 'Sets itself up the first time the app opens on normal internet — nothing for you to enter'} />
-            <Row ok={c.pcSeen ? c.pcOnline : null} title="Your PC" sub={c.pcLine + (remote && remote.pc && remote.pc.busy ? ` · ${remote.pc.busy === 'scan' ? 'checking Classroom' : 'turning in'}` : '')} />
+            <Row ok={net.cloud} title="Through iCloud — receiving" sub={net.cloud ? 'Posts, grades and files arrive this way at school' : e.canReadCloud ? (net.cloudErr || 'Not reachable right now') : 'Not in this copy of the app yet. Update Classroom Feed in TestFlight and it is switched on, with nothing to enter.'} />
+            <Row ok={e.canWriteCloud ? true : null} title="Through iCloud — sending" sub={e.canWriteCloud ? 'Turn-ins, your files and Scan can be sent from school' : 'Not in this copy of the app yet. Update Classroom Feed in TestFlight and it is switched on, with nothing to enter.'} />
+            <Row ok={c.pcKnown ? c.pcOnline : null} title="Your PC" sub={c.pcLine + (c.pcOnline && remote && remote.pc && remote.pc.busy ? ` · ${remote.pc.busy === 'scan' ? 'checking Classroom' : 'turning in'}` : '')} />
             {!!m && <Row ok={m.pending === 0} title="Files in iCloud" sub={m.pending === 0 ? 'Every file is copied' : `${m.pending} file${m.pending === 1 ? '' : 's'} still copying (${fmtBytes(m.bytes)})`} />}
           </Card>
 

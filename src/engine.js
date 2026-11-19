@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
+import * as Updates from 'expo-updates';
 import { DEFAULTS, drop, guessMime, load, makeApi, save, uid } from './lib';
 import * as cloud from './cloudcore';
 import { downloadFile, fileExists, fileSize, readSliceBase64, removeLocal, saveFromCloud, saveLocal } from './files';
@@ -53,6 +54,9 @@ export function useEngine({ onOpenItem }) {
   const hotUntil = useRef(0), botSeen = useRef({ ok: null, at: 0 }), sendFailAt = useRef(0);
   const syncing = useRef(false), again = useRef(false), jobRunning = useRef(false), autoSaving = useRef(false);
   const noticeTimer = useRef(null);
+  const devId = useRef(''), helloAt = useRef(0), errs = useRef([]), errDirty = useRef(false), pushRef = useRef({ granted: null, token: false });
+  /** Remembers the last few things that went wrong, so this device's own report (sayHello) can show them. */
+  const noteErr = (where, e) => { errs.current = [...errs.current.slice(-5), { w: where, m: msg(e), at: Date.now() }]; errDirty.current = true; };
 
   const setCfg = (c) => { r.cfg = c; apiRef.current = makeApi(c); setCfgState(c); save('cfg2', c); };
   const setCk = (k) => { const next = k ? { container: k.container, environment: k.environment, token: k.token || '', keyId: k.keyId || (r.ck && r.ck.keyId) || '', d: k.d || (r.ck && r.ck.d) || '' } : null; r.ck = next; setCkState(next); if (next) save('ck3', next); else drop('ck3'); };
@@ -86,6 +90,7 @@ export function useEngine({ onOpenItem }) {
     r.outbox = await load('outbox', []); r.jobs = await load('jobs', []);
     r.wanted = await load('wanted', {}); setWantedState(r.wanted);
     lastSync.current = await load('lastSync', 0); cloudLibVer.current = await load('cloudLibVer', 0);
+    devId.current = (await load('dev', '')) || uid('d'); save('dev', devId.current);
     // Changes an older build had queued (its own format): carry them over so nothing the user did is lost.
     const old = await load('queue', []);
     for (const q of Array.isArray(old) ? old : []) {
@@ -123,7 +128,7 @@ export function useEngine({ onOpenItem }) {
         ...(old.files || []).filter((f) => !serverIds.has(f.id) && (f.pending || (f.local && !f.synced))),
       ];
       map.set(i.id, {
-        ...old, ...i, files, dueAt: i.dueAt || old.dueAt || 0,
+        ...old, ...i, files, dueAt: typeof i.dueAt === 'number' ? i.dueAt : old.dueAt || 0, // the bot's word on the due time is final (an older copy may hold a wrong one)
         submitted: waiting('state', i.id) ? old.submitted : i.submitted,
         ...(waiting('turnin', i.id) ? { turnin: old.turnin, turnin_note: old.turnin_note, turnin_at: old.turnin_at } : {}),
       });
@@ -158,6 +163,31 @@ export function useEngine({ onOpenItem }) {
     hot(); setTimeout(() => sync(), 30);
     return full.id;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * This device's own short report — what it is and what it can see — sent like any other request, so it also arrives
+   * over iCloud from the school Wi-Fi. It is how a problem on a device can be found without anyone reading things off
+   * the screen. At most every 30 minutes (sooner right after something went wrong). Also makes the first signature
+   * ahead of time, so the first real turn-in is not the slow one.
+   */
+  const sayHello = () => {
+    const since = Date.now() - helloAt.current;
+    if (!(r.net.mode === 'bot' || cloud.canWrite(r.ck))) return; // no way to send it from here: don't leave it waiting
+    if (since < (errDirty.current ? 2 * 60 * 1000 : 30 * 60 * 1000) || r.outbox.some((o) => o.t === 'hello')) return;
+    helloAt.current = Date.now(); errDirty.current = false;
+    setTimeout(() => {
+      let sign = -1;
+      try { sign = cloud.warmUp(r.ck); } catch (e) { sign = -2; noteErr('sign', e); }
+      const op = {
+        id: uid(), ts: Date.now(), t: 'hello', dev: devId.current, name: r.cfg.name || '', os: `${Platform.OS} ${Platform.Version || ''}`.trim(), pad: !!Platform.isPad,
+        upd: String(Updates.updateId || 'built-in').slice(0, 8), embedded: !!Updates.isEmbeddedLaunch, rt: String(Updates.runtimeVersion || ''), seeded: !!SEED,
+        signedIn: !!r.cfg.token, read: cloud.canRead(r.ck), write: cloud.canWrite(r.ck), mode: r.net.mode, bot: r.net.bot, cloudOk: r.net.cloud, cloudErr: r.net.cloudErr || '',
+        items: r.items.length, files: r.items.reduce((n, i) => n + (i.files || []).length, 0), saved: Object.keys(r.saved).length, waiting: r.outbox.length, jobs: r.jobs.length,
+        push: pushRef.current, sign, errs: errs.current,
+      };
+      setOutbox((cur) => [...cur.filter((o) => o.t !== 'hello'), op]);
+    }, 1500);
+  };
 
   /* ---------- the two routes ---------- */
   const probeBot = async (force) => {
@@ -198,14 +228,14 @@ export function useEngine({ onOpenItem }) {
         await cloud.appendOps(k, unsent.map(wire), state.ops || []);
         const ids = new Set(unsent.map((o) => o.id)), now = Date.now();
         setOutbox((cur) => cur.map((o) => (ids.has(o.id) ? { ...o, cloud: now } : o)));
-      } catch { sendFailAt.current = Date.now(); }
+      } catch (e) { sendFailAt.current = Date.now(); noteErr('send', e); }
     }
     if (state.lib && state.lib.ver && (state.lib.ver !== cloudLibVer.current || (full && !r.items.length))) {
       try {
         const lib = await cloud.readLibrary(k, state.lib);
         applyIncoming(lib.items, true);
         cloudLibVer.current = state.lib.ver; save('cloudLibVer', state.lib.ver);
-      } catch { /* the list was being rewritten, or the connection dropped: the next pass reads it */ }
+      } catch (e) { if (e.code !== 'TORN') noteErr('list', e); /* the list was being rewritten, or the connection dropped: the next pass reads it */ }
     }
   };
 
@@ -222,10 +252,12 @@ export function useEngine({ onOpenItem }) {
         stale.filter((o) => o.t === 'turnin' && !o.cancel).forEach((o) => updateItem(o.item, { turnin: 'failed', turnin_note: 'This request never reached your PC. Try again.' }));
       }
       const k = r.ck;
-      const [botOk, st] = await Promise.all([
-        probeBot(!!opts.manual),
-        cloud.canRead(k) ? cloud.readState(k).then((s) => ({ ok: true, s }), (e) => ({ ok: false, e })) : Promise.resolve({ ok: false, e: new Error('not set up') }),
-      ]);
+      const stP = cloud.canRead(k) ? cloud.readState(k).then((s) => ({ ok: true, s }), (e) => ({ ok: false, e })) : Promise.resolve({ ok: false, e: new Error('not set up') });
+      const probe = probeBot(!!opts.manual);
+      // A blocked bot must not hold iCloud up (at school its check only ends by timing out): once iCloud has answered, the
+      // bot gets one more second, then this pass goes through iCloud. Its late answer still counts for the next pass.
+      const botOk = await Promise.race([probe, stP.then((x) => (x.ok ? sleep(1000).then(() => false) : probe))]);
+      const st = await stP;
       const full = !!(opts.manual || opts.full) || Date.now() - lastFull.current > 30000;
       let mode = 'offline';
       if (botOk) {
@@ -238,6 +270,7 @@ export function useEngine({ onOpenItem }) {
       if (mode !== 'bot' && st.ok) { mode = 'icloud'; try { await viaCloud(st.s, full); } catch { /* sending failed: the outbox keeps it for the next pass */ } }
       if (full && mode !== 'offline') lastFull.current = Date.now();
       setNet({ mode, bot: botOk, cloud: st.ok, cloudErr: st.ok ? '' : msg(st.e), at: Date.now() });
+      if (mode !== 'offline') sayHello();
       runJobs();
       if (full && mode !== 'offline') autoSave(mode);
     } finally {
@@ -265,7 +298,7 @@ export function useEngine({ onOpenItem }) {
       if (Platform.OS !== 'web') onSaved(file.id, path);
       setProg(file.id, null);
       return path;
-    } catch (e) { setProg(file.id, { kind: 'down', error: msg(e), code: e.code || '' }); throw e; }
+    } catch (e) { if (e.code !== 'NOT_IN_CLOUD') noteErr('file', e); setProg(file.id, { kind: 'down', error: msg(e), code: e.code || '' }); throw e; }
   }, [onSaved]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Copies attachments onto the device ahead of time so they open instantly (and offline). Over iCloud only recent, normal-sized ones. */
@@ -311,7 +344,7 @@ export function useEngine({ onOpenItem }) {
       return;
     }
     const k = r.ck;
-    if (!cloud.canWrite(k)) { const e = new Error('it goes out as soon as the app has been on normal internet once'); e.code = 'NO_KEY'; throw e; }
+    if (!cloud.canWrite(k)) { const e = new Error('it goes out once Classroom Feed is updated in TestFlight'); e.code = 'NO_KEY'; throw e; }
     for (let i = job.next || 0; i < job.chunks; i++) {
       if (!r.jobs.some((j) => j.up === job.up)) return; // the user removed the file meanwhile
       const b64 = await readSliceBase64(job.uri, i * cloud.CHUNK_RAW, cloud.CHUNK_RAW);
@@ -332,6 +365,7 @@ export function useEngine({ onOpenItem }) {
         if (!job) break;
         try { await runJob(job); }
         catch (e) {
+          noteErr('upload', e);
           patchJob(job.up, { error: msg(e), errorAt: Date.now(), tries: (job.tries || 0) + 1 });
           setProg(job.up, { kind: 'up', done: job.next || 0, total: job.chunks, error: msg(e) });
           if (e.code === 'NO_KEY' || e.name === 'AbortError' || /network|fetch/i.test(msg(e))) break; // no point trying the next one right now
@@ -404,6 +438,9 @@ export function useEngine({ onOpenItem }) {
   /** Asks the PC to look at Google Classroom right now. Progress arrives in remote.scan. */
   const scanNow = useCallback(() => { hot(7 * 60 * 1000); return sendOp({ t: 'scan' }); }, [sendOp]);
 
+  /** "Send me a test notification" as a request, so it also works where the bot cannot be reached directly. */
+  const pushTestViaRequest = useCallback(() => sendOp({ t: 'pushtest' }), [sendOp]);
+
   /** Sends a do-nothing request and times how long the whole loop takes to answer. */
   const testLoop = useCallback(async () => {
     const id = sendOp({ t: 'ping' }), t0 = Date.now();
@@ -445,24 +482,30 @@ export function useEngine({ onOpenItem }) {
     // A quick heartbeat: every 3 s while something is in motion (a request waiting, a scan running, an upload), every 30 s otherwise.
     const t = setInterval(() => {
       if (AppState.currentState !== 'active') return;
-      const busy = Date.now() < hotUntil.current || r.outbox.length > 0 || r.jobs.some((j) => !j.error);
+      // A request that has already reached iCloud is only waiting for the PC: after two minutes stop checking every few
+      // seconds for it (the normal 30-second check still picks its answer up).
+      const waiting = r.outbox.some((o) => !o.cloud || Date.now() - o.cloud < 2 * 60 * 1000);
+      const busy = Date.now() < hotUntil.current || waiting || r.jobs.some((j) => !j.error);
       if (busy || Date.now() - lastTick.current > 30000) sync();
     }, 3000);
     return () => { clearInterval(t); sub.remove(); };
   }, [ready, sync]);
 
-  useEffect(() => { // notifications: permission, this device's token, and telling the bot about it (also works through iCloud)
-    if (!ready || !cfg.token || Platform.OS === 'web') return;
+  // Notifications: permission, this device's token, and telling the bot about it. No sign-in needed (a copy of the app
+  // with iCloud built in registers through iCloud). Getting the token itself needs normal internet once per device.
+  const canRegister = !!cfg.token || cloud.canWrite(ck);
+  useEffect(() => {
+    if (!ready || !canRegister || Platform.OS === 'web') return;
     (async () => {
       try {
         const p = await Notifications.requestPermissionsAsync();
         let token = await load('pushToken', '');
         if (p.granted) { try { token = (await Notifications.getExpoPushTokenAsync()).data || token; save('pushToken', token); } catch { /* that server is blocked here: keep the token we already had */ } }
-        setPush({ token, granted: !!p.granted });
+        setPush({ token, granted: !!p.granted }); pushRef.current = { granted: !!p.granted, token: !!token };
         if (p.granted && token && (await load('pushReg', '')) !== token) { sendOp({ t: 'push', token }); save('pushReg', token); }
       } catch { /* notifications stay off */ }
     })();
-  }, [ready, cfg.token]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ready, canRegister, net.mode === 'bot']); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (Platform.OS === 'web') return undefined;
@@ -486,8 +529,8 @@ export function useEngine({ onOpenItem }) {
     ready, cfg, ck, items, saved, remote, net, outbox, jobs, progress, fresh, notice, refreshing, wanted, push,
     api: apiRef.current, canSend: net.mode === 'bot' || cloud.canWrite(ck), canWriteCloud: cloud.canWrite(ck), canReadCloud: cloud.canRead(ck),
     notify, sync, refresh: () => sync({ manual: true }), setFresh, updateItem, onSaved, getFile, wantFile,
-    addWork, retryWork, removeWork, turnIn, cancelTurnIn, toggleSubmitted, scanNow, testLoop, addItem, deleteItem,
+    addWork, retryWork, removeWork, turnIn, cancelTurnIn, toggleSubmitted, scanNow, pushTestViaRequest, testLoop, addItem, deleteItem,
     onAuth, signOut, setSchoolMode, applyIncoming,
   }), [ready, cfg, ck, items, saved, remote, net, outbox, jobs, progress, fresh, notice, refreshing, wanted, push,
-    notify, sync, updateItem, onSaved, getFile, wantFile, addWork, retryWork, removeWork, turnIn, cancelTurnIn, toggleSubmitted, scanNow, testLoop, addItem, deleteItem, onAuth, signOut, setSchoolMode, applyIncoming]);
+    notify, sync, updateItem, onSaved, getFile, wantFile, addWork, retryWork, removeWork, turnIn, cancelTurnIn, toggleSubmitted, scanNow, pushTestViaRequest, testLoop, addItem, deleteItem, onAuth, signOut, setSchoolMode, applyIncoming]);
 }
