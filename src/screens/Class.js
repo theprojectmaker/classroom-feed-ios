@@ -4,7 +4,7 @@ import React, { useContext, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AppCtx } from '../ctx';
 import { T, classPair } from '../theme';
-import { Card, Chip, Empty, GroupLabel, Icon, LinearGradient, RowIcon, Seg, StatePill, WorkRow, isOpen, isWork, monthKey, monthLabel, postedDetail, shortDue, workState } from '../ui';
+import { Card, Chip, DONE_STATES, Empty, GroupLabel, Icon, LinearGradient, RowIcon, Seg, StatePill, WorkRow, isOpen, isWork, monthKey, monthLabel, postedDetail, shortDue, workState } from '../ui';
 
 const posted = (i) => i.posted_at || i.created_at || 0;
 /** "Today, 10:19 AM" / "Nov 17, 9:28 AM" — when it was posted, as a line of its own. */
@@ -36,7 +36,7 @@ function StreamPost({ item, onPress, onLongPress }) {
       <RowIcon item={item} size={36} />
       <View style={{ flex: 1 }}>
         <Text style={s.postLine} numberOfLines={2}><Text style={s.postKind}>{(KIND_WORD[item.kind] || 'New post') + ': '}</Text>{item.title}</Text>
-        <Text style={s.postWhen} numberOfLines={1}>{[when(item), work && (item.dueAt || item.due) && !['turnedin', 'graded', 'done'].includes(st) ? 'Due ' + shortDue(item) : ''].filter(Boolean).join(' · ')}</Text>
+        <Text style={s.postWhen} numberOfLines={1}>{[when(item), work && (item.dueAt || item.due) && !DONE_STATES.includes(st) ? 'Due ' + shortDue(item) : ''].filter(Boolean).join(' · ')}</Text>
       </View>
       <View style={{ alignItems: 'flex-end', gap: 4 }}>
         {item.starred && <Icon n="pin" s={14} c={T.amberFill} />}

@@ -15,15 +15,17 @@ export const kindOf = (i) => (i.kind === 'announcement' ? 'Announcements' : i.ki
 export function workState(i) {
   const s = String(i.status || '').toLowerCase();
   if (/turned in|handed in/.test(s)) return 'turnedin'; // in the teacher's hands — also after a resubmit, while an older grade still shows
+  if (/excused/.test(s)) return 'excused'; // your teacher let you off this one: nothing to hand in
   if (/graded|returned/.test(s) || (i.grade && !/missing/.test(s))) return 'graded';
   if (i.turnin === 'done') return 'turnedin';
   if (i.submitted) return 'done';
   if (/missing/.test(s) || (i.dueAt && i.dueAt < Date.now())) return 'late';
   return 'open';
 }
-export const isDone = (i) => ['turnedin', 'graded', 'done'].includes(workState(i));
+export const DONE_STATES = ['turnedin', 'graded', 'excused', 'done'];
+export const isDone = (i) => DONE_STATES.includes(workState(i));
 export const isOpen = (i) => isWork(i) && !isDone(i);
-export const STATE_LABEL = { turnedin: 'Turned in', graded: 'Graded', done: 'Done', late: 'Missing', open: 'Assigned' };
+export const STATE_LABEL = { turnedin: 'Turned in', graded: 'Graded', excused: 'Excused', done: 'Done', late: 'Missing', open: 'Assigned' };
 // Kept for older call sites: 'done' | 'overdue' | 'assigned'.
 export const statusOf = (i) => (isDone(i) ? 'done' : workState(i) === 'late' ? 'overdue' : 'assigned');
 
@@ -138,6 +140,7 @@ export function cleanBody(body) {
 export function parseThread(text) {
   const out = [];
   for (const line of String(text || '').split('\n')) {
+    if (/^(more_vert|More options)$/.test(line.trim())) continue; // the menu button Classroom puts on your own comments
     const m = line.match(/^(.{1,70}?) • (.{1,40})$/);
     if (m) out.push({ who: m[1].trim(), when: m[2].trim(), text: '' });
     else if (out.length) out[out.length - 1].text += (out[out.length - 1].text ? '\n' : '') + line;

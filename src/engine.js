@@ -395,10 +395,14 @@ export function useEngine({ onOpenItem }) {
 
   /** Adds a finished file to an assignment: shown at once, sent by whichever route works. The same file is never added twice. */
   const addWork = useCallback(async (item, asset) => {
-    const name = String(asset.name || 'work').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 110) || 'work';
+    const cur = r.items.find((i) => i.id === item.id) || item;
+    let name = String(asset.name || 'work').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 110) || 'work';
+    // A file that comes back from this app's own storage (you opened an attachment, wrote on it, sent it back) is called
+    // "<its id>-<a stripped-down name>": give it its real name again, so your teacher does not see a string of letters.
+    const own = name.match(/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|u[a-z0-9]{10,})-(.+)$/i);
+    if (own) { const orig = (cur.files || []).find((f) => f.id === own[1]) || r.items.flatMap((i) => i.files || []).find((f) => f.id === own[1]); name = (orig && orig.name) || own[2]; }
     const local = await saveLocal(asset.uri, name);
     const size = asset.size || (await fileSize(local));
-    const cur = r.items.find((i) => i.id === item.id) || item;
     if ((cur.files || []).some((f) => f.origin === 'upload' && f.name === name && (!f.size || !size || f.size === size))) {
       await removeLocal(local); notify(`“${name}” is already added to this assignment.`); return null;
     }

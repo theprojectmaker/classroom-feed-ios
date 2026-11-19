@@ -158,13 +158,14 @@ export function ItemScreen({ id }) {
   const theirs = files.filter((f) => f.origin !== 'upload');
   const mine = files.filter((f) => f.origin === 'upload');
   const tv = turninView(e, item);
-  const graded = ws === 'graded', turnedIn = ws === 'turnedin';
+  const excused = ws === 'excused'; // your teacher let you off: nothing to hand in (Classroom still allows handing work in)
+  const graded = ws === 'graded' || excused, turnedIn = ws === 'turnedin';
   const handedIn = turnedIn || graded;
   const queued = tv.state === 'queued';
   const canClassroom = work && !item.mine && !!item.url;
   const sending = mine.some((f) => f.pending);
   const cb = cleanBody(item.body); // the instructions without Classroom's own header lines, and the points if it had any
-  const stateWord = queued ? 'Turning in…' : turnedIn ? 'Turned in' : graded ? 'Graded' : ws === 'late' ? 'Missing' : ws === 'done' ? 'Done' : 'Assigned';
+  const stateWord = queued ? 'Turning in…' : turnedIn ? 'Turned in' : excused ? 'Excused' : graded ? 'Graded' : ws === 'late' ? 'Missing' : ws === 'done' ? 'Done' : 'Assigned';
   const stateColor = ws === 'late' ? T.red : turnedIn || graded || ws === 'done' ? T.sub : T.green;
 
   const addAssets = async (assets) => { for (const a of assets) await e.addWork(item, a); };
@@ -227,7 +228,7 @@ export function ItemScreen({ id }) {
           {tv.failed && failedBox('Your file was not sent')}
           {/* Your teacher already graded it, so a normal turn-in has nothing to do. Handing work in again is a choice: say so, and ask first. */}
           {mine.length === 0 ? (
-            <Text style={s.hint}>Your teacher already graded this one. To hand in new work for it anyway, add the file above.</Text>
+            <Text style={s.hint}>{excused ? 'Your teacher excused this one, so there is nothing you have to hand in. To hand in work for it anyway, add the file above.' : 'Your teacher already graded this one. To hand in new work for it anyway, add the file above.'}</Text>
           ) : askResubmit ? (
             <View style={{ gap: 10 }}>
               <Text style={s.hint}>This sends your file{mine.length > 1 ? 's' : ''} to your teacher and marks the work as turned in again on Google Classroom.</Text>
@@ -237,7 +238,7 @@ export function ItemScreen({ id }) {
               </View>
             </View>
           ) : (<>
-            <Text style={s.hint}>Your teacher already graded this one, so your file{mine.length > 1 ? 's have' : ' has'} not been sent. You can still hand it in again.</Text>
+            <Text style={s.hint}>Your teacher already {excused ? 'excused' : 'graded'} this one, so your file{mine.length > 1 ? 's have' : ' has'} not been sent. You can still hand it in.</Text>
             <Btn label={sending ? 'Resubmit when sent' : 'Resubmit'} onPress={() => setAskResubmit(true)} />
           </>)}
         </>) : (<>

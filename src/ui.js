@@ -5,7 +5,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { T, classPair, hair, shadow, shadowSm } from './theme';
-import { STATE_LABEL, fileExt, isNew, isWork, postedDetail, shortDue, workState } from './util';
+import { DONE_STATES, STATE_LABEL, fileExt, isNew, isWork, postedDetail, shortDue, workState } from './util';
 
 export * from './util';
 export { LinearGradient };
@@ -138,7 +138,7 @@ export const FileBadge = ({ name, size = 44 }) => (
 // The round icon Google Classroom puts in front of every post: what kind it is, in the class's colour (grey once done).
 const KIND_ICON = { announcement: 'megaphone', material: 'bookmark', email: 'mail' };
 export function RowIcon({ item, size = 40 }) {
-  const done = isWork(item) && ['turnedin', 'graded', 'done'].includes(workState(item));
+  const done = isWork(item) && DONE_STATES.includes(workState(item));
   return (
     <LinearGradient colors={done ? ['#AEAEB2', '#C7C7CC'] : classPair(item.course)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[st.rowIcon, { width: size, height: size, borderRadius: size / 2 }]}>
       <Icon n={KIND_ICON[item.kind] || 'clipboard'} s={size * 0.47} c="#fff" />
@@ -146,7 +146,7 @@ export function RowIcon({ item, size = 40 }) {
   );
 }
 
-const STATE_TONE = { turnedin: 'green', graded: 'green', done: 'gray', late: 'red', open: 'blue' };
+const STATE_TONE = { turnedin: 'green', graded: 'green', excused: 'gray', done: 'gray', late: 'red', open: 'blue' };
 /** Where a piece of work stands, as a pill. Graded work shows its grade. */
 export function StatePill({ item }) {
   if (!isWork(item)) return null;
@@ -162,7 +162,7 @@ export function StatePill({ item }) {
  */
 export function WorkRow({ item, onPress, onLongPress, showCourse, last, note }) {
   const work = isWork(item), s = workState(item);
-  const done = work && ['turnedin', 'graded', 'done'].includes(s);
+  const done = work && DONE_STATES.includes(s);
   const meta = [showCourse ? item.course : '', postedDetail(item)].filter(Boolean).join(' · ');
   const due = work && (item.dueAt || item.due) ? 'Due ' + shortDue(item) : '';
   return (
