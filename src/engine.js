@@ -524,7 +524,7 @@ export function useEngine({ onOpenItem }) {
       // seconds for it (the normal 30-second check still picks its answer up).
       const waiting = r.outbox.some((o) => !o.cloud || Date.now() - o.cloud < 2 * 60 * 1000);
       const busy = Date.now() < hotUntil.current || waiting || r.jobs.some((j) => !j.error);
-      if (busy || Date.now() - lastTick.current > 30000) sync();
+      if (busy || Date.now() - lastTick.current > 10000) sync(); // every 10 s while the app is open: new work shows up almost as it lands
     }, 3000);
     return () => { clearInterval(t); sub.remove(); };
   }, [ready, sync]);
