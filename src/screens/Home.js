@@ -4,7 +4,7 @@ import React, { useContext, useMemo } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { AppCtx } from '../ctx';
 import { SIDEBAR, T, WIDE, classPair, hair } from '../theme';
-import { Btn, Card, Empty, Icon, IconBtn, LargeTitle, LinearGradient, SectionTitle, WorkRow, isNew, isOpen, shortDue, useNow, workState } from '../ui';
+import { Btn, Card, Empty, Icon, IconBtn, LargeTitle, LinearGradient, SectionTitle, WorkRow, gradeSummary, isNew, isOpen, shortDue, teacherOf, useNow, workState } from '../ui';
 import { connInfo, scanView } from '../conn';
 
 /** Small "Live · iCloud" chip. Tapping it opens the connection page. */
@@ -50,7 +50,8 @@ function useClassCards(items) {
     const m = new Map();
     for (const i of items) {
       const k = i.course || 'Other';
-      const c = m.get(k) || { name: k, todo: 0, late: 0, fresh: 0, next: [] };
+      const c = m.get(k) || { name: k, todo: 0, late: 0, fresh: 0, next: [], all: [] };
+      c.all.push(i);
       if (isNew(i)) c.fresh++;
       if (isOpen(i)) {
         if (workState(i) === 'late') c.late++;
@@ -59,7 +60,7 @@ function useClassCards(items) {
       m.set(k, c);
     }
     const out = [...m.values()].sort((a, b) => a.name.localeCompare(b.name));
-    out.forEach((c) => { c.next = c.next.sort((a, b) => a.dueAt - b.dueAt).slice(0, 2); });
+    out.forEach((c) => { c.next = c.next.sort((a, b) => a.dueAt - b.dueAt).slice(0, 2); c.teacher = teacherOf(c.all); c.avg = gradeSummary(c.all).pct; c.all = null; });
     return out;
   }, [items]);
 }
@@ -126,6 +127,7 @@ export function ClassesScreen() {
                 <LinearGradient colors={classPair(c.name)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.banner}>
                   <View style={s.bannerGlow} />
                   <Text style={s.bannerTitle} numberOfLines={2}>{c.name}</Text>
+                  {!!c.teacher && <Text style={s.bannerSub} numberOfLines={1}>{c.teacher}</Text>}
                 </LinearGradient>
                 <View style={s.classBody}>
                   {c.next.length === 0 ? <Text style={s.nextNone}>{c.late ? 'Nothing else coming up' : 'No work due soon'}</Text> : c.next.map((i) => (
@@ -139,6 +141,7 @@ export function ClassesScreen() {
                   <Text style={s.footTxt}>{c.todo ? `${c.todo} assigned` : 'All caught up'}</Text>
                   {c.late > 0 && <Text style={[s.footTxt, { color: T.red, fontWeight: '600' }]}>{c.late} missing</Text>}
                   {c.fresh > 0 && <Text style={[s.footTxt, { color: T.brand, fontWeight: '600' }]}>{c.fresh} new</Text>}
+                  {c.avg != null && <Text style={[s.footTxt, { marginLeft: 'auto', color: T.text, fontWeight: '600' }]}>{c.avg}%</Text>}
                 </View>
               </Pressable>
             ))}
@@ -169,7 +172,8 @@ const s = StyleSheet.create({
   noteTxt: { fontSize: 15, color: T.sub, lineHeight: 21 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
   classCard: { backgroundColor: '#fff', borderRadius: 16, overflow: 'hidden' },
-  banner: { height: 96, paddingHorizontal: 16, paddingBottom: 12, justifyContent: 'flex-end', overflow: 'hidden' },
+  banner: { height: 104, paddingHorizontal: 16, paddingBottom: 12, justifyContent: 'flex-end', overflow: 'hidden' },
+  bannerSub: { color: '#ffffffd9', fontSize: 13.5, marginTop: 2 },
   bannerGlow: { position: 'absolute', right: -44, top: -56, width: 170, height: 170, borderRadius: 85, backgroundColor: '#ffffff22' },
   bannerTitle: { color: '#fff', fontSize: 21, fontWeight: '700', letterSpacing: -0.3, lineHeight: 25 },
   classBody: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6, minHeight: 66, gap: 7, justifyContent: 'center' },

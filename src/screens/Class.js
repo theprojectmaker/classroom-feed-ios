@@ -1,26 +1,28 @@
 // One class, laid out like Google Classroom: a coloured banner, then Stream (everything posted, newest first, with what
-// is coming up) and Classwork (assignments and materials, grouped by month).
+// is coming up), Classwork (assignments and materials, grouped by month) and Grades (your scores and your average).
 import React, { useContext, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AppCtx } from '../ctx';
-import { T, classPair } from '../theme';
-import { Card, Chip, DONE_STATES, Empty, GroupLabel, Icon, LinearGradient, RowIcon, Seg, StatePill, WorkRow, isOpen, isWork, monthKey, monthLabel, postedDetail, shortDue, workState } from '../ui';
+import { T, classPair, hair } from '../theme';
+import { Card, Chip, DONE_STATES, Empty, GroupLabel, Icon, LinearGradient, RowIcon, Seg, StatePill, WorkRow, gradeParts, gradeSummary, isOpen, isWork, monthKey, monthLabel, niceName, postedDetail, shortDue, teacherOf, workState } from '../ui';
 
 const posted = (i) => i.posted_at || i.created_at || 0;
 /** "Today, 10:19 AM" / "Nov 17, 9:28 AM" — when it was posted, as a line of its own. */
 const when = (i) => { const t = postedDetail(i).replace(/^Posted /, ''); return t.charAt(0).toUpperCase() + t.slice(1); };
-const KIND_WORD = { assignment: 'New assignment', material: 'New material', announcement: 'Announcement', email: 'Message' };
+const KIND_WORD = { assignment: 'a new assignment', material: 'new material', email: 'a message' };
+const KIND_ALONE = { assignment: 'New assignment', material: 'New material', email: 'Message' };
 
-/** One post in the Stream. An announcement shows its text; everything else is a line that opens the post. */
+/** One post in the Stream. An announcement shows its text; everything else is "<teacher> posted a new assignment: …". */
 function StreamPost({ item, onPress, onLongPress }) {
   const nf = (item.files || []).filter((f) => f.origin !== 'upload').length;
+  const who = niceName(item.author);
   if (item.kind === 'announcement') {
     return (
       <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={380} style={({ pressed }) => [s.post, pressed && { opacity: 0.7 }]}>
         <View style={s.postHead}>
           <RowIcon item={item} size={36} />
           <View style={{ flex: 1 }}>
-            <Text style={s.postWho}>Announcement</Text>
+            <Text style={s.postWho}>{who || 'Announcement'}</Text>
             <Text style={s.postWhen}>{when(item)}</Text>
           </View>
           {item.starred && <Icon n="pin" s={15} c={T.amberFill} />}
@@ -31,11 +33,12 @@ function StreamPost({ item, onPress, onLongPress }) {
     );
   }
   const work = isWork(item), st = workState(item);
+  const lead = who ? `${who} posted ${KIND_WORD[item.kind] || 'a new post'}: ` : `${KIND_ALONE[item.kind] || 'New post'}: `;
   return (
     <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={380} style={({ pressed }) => [s.post, s.postRow, pressed && { opacity: 0.7 }]}>
       <RowIcon item={item} size={36} />
       <View style={{ flex: 1 }}>
-        <Text style={s.postLine} numberOfLines={2}><Text style={s.postKind}>{(KIND_WORD[item.kind] || 'New post') + ': '}</Text>{item.title}</Text>
+        <Text style={s.postLine} numberOfLines={2}><Text style={s.postKind}>{lead}</Text>{item.title}</Text>
         <Text style={s.postWhen} numberOfLines={1}>{[when(item), work && (item.dueAt || item.due) && !DONE_STATES.includes(st) ? 'Due ' + shortDue(item) : ''].filter(Boolean).join(' · ')}</Text>
       </View>
       <View style={{ alignItems: 'flex-end', gap: 4 }}>
@@ -46,6 +49,8 @@ function StreamPost({ item, onPress, onLongPress }) {
   );
 }
 
+const pctColor = (p) => (p >= 85 ? T.green : p >= 70 ? T.amber : T.red);
+
 export function ClassScreen({ name }) {
   const e = useContext(AppCtx);
   const { items, openItem, pop } = e;
@@ -53,8 +58,9 @@ export function ClassScreen({ name }) {
   const [kind, setKind] = useState('all');
   const pair = classPair(name);
   const mine = useMemo(() => items.filter((i) => (i.course || 'Other') === name).sort((a, b) => posted(b) - posted(a)), [items, name]);
+  const teacher = useMemo(() => teacherOf(mine), [mine]);
   const upcoming = useMemo(() => mine.filter((i) => isOpen(i) && workState(i) !== 'late' && i.dueAt).sort((a, b) => a.dueAt - b.dueAt).slice(0, 3), [mine]);
-  const missing = useMemo(() => mine.filter((i) => isOpen(i) && workState(i) === 'late').length, [mine]);
+  const missing = useMemo(() => mine.filter((i) => isOpen(i) && workState(i) === 'late'), [mine]);
   const groups = useMemo(() => {
     const list = mine.filter((i) => i.kind !== 'announcement' && (kind === 'all' || (kind === 'work' ? isWork(i) : !isWork(i))));
     const out = [];
@@ -66,6 +72,9 @@ export function ClassScreen({ name }) {
     }
     return out;
   }, [mine, kind]);
+  const scored = useMemo(() => mine.filter((i) => gradeParts(i.grade)), [mine]);
+  const sum = useMemo(() => gradeSummary(mine), [mine]);
+  const waiting = useMemo(() => mine.filter((i) => isWork(i) && workState(i) === 'turnedin' && !gradeParts(i.grade)).length, [mine]);
 
   return (
     <View style={{ flex: 1 }}>
@@ -75,9 +84,9 @@ export function ClassScreen({ name }) {
           <Icon n="chevron-back" s={25} c="#fff" /><Text style={s.backTxt}>Classes</Text>
         </Pressable>
         <Text style={s.bannerTitle} numberOfLines={2}>{name}</Text>
-        <Text style={s.bannerSub}>{mine.length} post{mine.length === 1 ? '' : 's'}{missing ? ` · ${missing} missing` : ''}</Text>
+        <Text style={s.bannerSub}>{[teacher, `${mine.length} post${mine.length === 1 ? '' : 's'}`, missing.length ? `${missing.length} missing` : ''].filter(Boolean).join(' · ')}</Text>
       </LinearGradient>
-      <View style={s.segWrap}><Seg value={tab} onChange={setTab} options={[['stream', 'Stream'], ['classwork', 'Classwork']]} /></View>
+      <View style={s.segWrap}><Seg value={tab} onChange={setTab} options={[['stream', 'Stream'], ['classwork', 'Classwork'], ['grades', 'Grades']]} /></View>
 
       {tab === 'stream' ? (
         <ScrollView contentContainerStyle={s.page}>
@@ -96,7 +105,7 @@ export function ClassScreen({ name }) {
             {mine.map((i) => <StreamPost key={i.id} item={i} onPress={() => openItem(i.id)} onLongPress={() => e.togglePin(i)} />)}
           </View>
         </ScrollView>
-      ) : (
+      ) : tab === 'classwork' ? (
         <ScrollView contentContainerStyle={s.page}>
           <View style={s.wrap}>
             <View style={s.chips}>
@@ -109,6 +118,45 @@ export function ClassScreen({ name }) {
                 <Card>{g.list.map((i, k) => <WorkRow key={i.id} item={i} last={k === g.list.length - 1} onPress={() => openItem(i.id)} onLongPress={() => e.togglePin(i)} />)}</Card>
               </View>
             ))}
+          </View>
+        </ScrollView>
+      ) : (
+        <ScrollView contentContainerStyle={s.page}>
+          <View style={s.wrap}>
+            <Card style={s.sum}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.sumL}>Average of graded work</Text>
+                <Text style={[s.sumBig, sum.pct != null && { color: pctColor(sum.pct) }]}>{sum.pct != null ? `${sum.pct}%` : '—'}</Text>
+                <Text style={s.sumSub}>{sum.n ? `${sum.got} of ${sum.of} points · ${sum.n} graded` : 'Nothing graded yet'}</Text>
+              </View>
+              <View style={s.sumSide}>
+                <Text style={[s.sumNum, missing.length > 0 && { color: T.red }]}>{missing.length}</Text><Text style={s.sumCap}>missing</Text>
+                <Text style={[s.sumNum, { marginTop: 8 }]}>{waiting}</Text><Text style={s.sumCap}>turned in, not graded yet</Text>
+              </View>
+            </Card>
+            <Text style={s.fine}>Points earned out of points possible, across everything graded here. Your teacher may weigh work differently, so the grade in the school portal can be different.</Text>
+            {scored.length === 0 ? <Empty icon="ribbon-outline" title="No grades yet" text="Scores show up here as soon as your teacher grades something." /> : (<>
+              <GroupLabel title="Graded" count={scored.length} style={{ marginTop: 18 }} />
+              <Card>
+                {scored.map((i, k) => {
+                  const g = gradeParts(i.grade), p = Math.round((g.got / g.of) * 100);
+                  return (
+                    <Pressable key={i.id} onPress={() => openItem(i.id)} style={({ pressed }) => [s.gRow, pressed && { backgroundColor: T.soft }]}>
+                      <View style={[s.gBody, k < scored.length - 1 && s.gLine]}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.gTitle} numberOfLines={2}>{i.title}</Text>
+                          <Text style={s.gSub} numberOfLines={1}>{postedDetail(i)}</Text>
+                        </View>
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <Text style={s.gScore}>{i.grade}</Text>
+                          <Text style={[s.gPct, { color: pctColor(p) }]}>{p}%</Text>
+                        </View>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </Card>
+            </>)}
           </View>
         </ScrollView>
       )}
@@ -144,4 +192,19 @@ const s = StyleSheet.create({
   postFilesTxt: { fontSize: 13.5, color: T.sub },
   postLine: { fontSize: 15.5, color: T.ink, lineHeight: 20, letterSpacing: -0.2 },
   postKind: { color: T.sub },
+  sum: { flexDirection: 'row', padding: 18, gap: 16, alignItems: 'center' },
+  sumL: { fontSize: 13, color: T.sub, textTransform: 'uppercase', letterSpacing: 0.2 },
+  sumBig: { fontSize: 44, fontWeight: '700', color: T.ink, letterSpacing: -1, marginTop: 2 },
+  sumSub: { fontSize: 14, color: T.sub, marginTop: 1 },
+  sumSide: { alignItems: 'flex-end', maxWidth: 150 },
+  sumNum: { fontSize: 22, fontWeight: '700', color: T.ink },
+  sumCap: { fontSize: 12.5, color: T.sub, textAlign: 'right' },
+  fine: { fontSize: 12.5, color: T.faint, lineHeight: 17, marginTop: 8, marginHorizontal: 4 },
+  gRow: { paddingLeft: 16 },
+  gBody: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingRight: 16, minHeight: 56 },
+  gLine: { borderBottomWidth: hair, borderBottomColor: T.line },
+  gTitle: { fontSize: 16.5, color: T.ink, letterSpacing: -0.3, lineHeight: 21 },
+  gSub: { fontSize: 13, color: T.sub, marginTop: 2 },
+  gScore: { fontSize: 17, fontWeight: '600', color: T.ink },
+  gPct: { fontSize: 13, fontWeight: '600', marginTop: 1 },
 });

@@ -7,7 +7,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppCtx } from '../ctx';
 import { SIDEBAR, T, WIDE, classPair, hair } from '../theme';
-import { Btn, Card, FileBadge, Header, Icon, Progress, RowIcon, WorkRow, hasUpdate, isOpen, isWork, cleanBody, parseThread, postedDetail, shortDue, whenLabel, workState } from '../ui';
+import { Btn, Card, FileBadge, Header, Icon, Progress, RowIcon, WorkRow, hasUpdate, isOpen, isWork, cleanBody, niceName, parseThread, postedDetail, shortDue, whenLabel, workState } from '../ui';
 import { fmtBytes } from '../lib';
 import { fileExists, openFile, resolveLocal } from '../files';
 import { turninView } from '../conn';
@@ -286,7 +286,7 @@ export function ItemScreen({ id }) {
               <RowIcon item={item} size={46} />
               <View style={{ flex: 1 }}>
                 <Text style={s.title}>{item.title}</Text>
-                <Text style={s.meta}>{[postedDetail(item), cb.points, item.starred ? 'Pinned' : ''].filter(Boolean).join(' · ')}</Text>
+                <Text style={s.meta}>{[niceName(item.author), postedDetail(item), cb.points, item.starred ? 'Pinned' : ''].filter(Boolean).join(' · ')}</Text>
               </View>
             </View>
             {work && (

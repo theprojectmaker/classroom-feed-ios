@@ -136,6 +136,28 @@ export function cleanBody(body) {
   return { text: L.slice(k).join('\n').trim(), points };
 }
 
+/** "CATHERINE LEONG (North High)" -> "Catherine Leong": a teacher's name the way you would write it. */
+export const niceName = (s) => String(s || '').replace(/\s*\(.*?\)\s*$/, '').trim().toLowerCase().replace(/(^|[\s'-])([a-z])/g, (m, a, b) => a + b.toUpperCase());
+/** The teacher of a class: whoever posted most of what is in it. */
+export function teacherOf(items) {
+  const n = {};
+  for (const i of items) if (i.author) n[i.author] = (n[i.author] || 0) + 1;
+  const top = Object.entries(n).sort((a, b) => b[1] - a[1])[0];
+  return top ? niceName(top[0]) : '';
+}
+/** "12/15" -> { got: 12, of: 15 }; null when the grade is not a score. */
+export function gradeParts(g) {
+  const m = String(g || '').match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
+  return m && Number(m[2]) > 0 ? { got: Number(m[1]), of: Number(m[2]) } : null;
+}
+/** The graded work in a list, added up: points earned out of points possible (not weighted). */
+export function gradeSummary(items) {
+  let got = 0, of = 0, n = 0;
+  for (const i of items) { const g = gradeParts(i.grade); if (g) { got += g.got; of += g.of; n++; } }
+  const r = (x) => Math.round(x * 10) / 10;
+  return { n, got: r(got), of: r(of), pct: of ? r((got / of) * 100) : null };
+}
+
 /** The private-comment thread as Classroom shows it ("NAME • date", then the text, repeated) -> [{who, when, text}]. */
 export function parseThread(text) {
   const out = [];
