@@ -23,6 +23,22 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const msg = (e) => String((e && e.message) || e || 'failed').slice(0, 140);
 const wire = ({ cloud: _c, ...op }) => op; // what leaves the device (local bookkeeping stripped)
 
+/**
+ * What the notification library would send to Expo's server to register this device — captured instead of sent.
+ * On a Wi-Fi that only allows Apple that server cannot be reached, so the device could never get its notification
+ * address; the bot (which can reach it) sends exactly this on the device's behalf. Returns null if it cannot be captured.
+ */
+async function captureExpoRegistration() {
+  const real = global.fetch;
+  let body = null;
+  global.fetch = (url, init) => {
+    if (String((url && url.url) || url).includes('push/getExpoPushToken')) { body = init && init.body ? String(init.body) : null; return Promise.reject(new Error('kept for the bot')); }
+    return real(url, init);
+  };
+  try { await Promise.race([Notifications.getExpoPushTokenAsync(), sleep(15000)]); } catch { /* expected: the request was kept */ } finally { global.fetch = real; }
+  try { const j = JSON.parse(body); return j && j.deviceToken && j.deviceId ? j : null; } catch { return null; }
+}
+
 if (Platform.OS !== 'web') {
   Notifications.setNotificationHandler({
     handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false }),
@@ -142,7 +158,8 @@ export function useEngine({ onOpenItem }) {
     if (!got || !got.length) return;
     const known = new Set(r.items.map((i) => i.id));
     const brandNew = got.filter((i) => !known.has(i.id) && i.kind !== 'email');
-    if (!quiet && known.size && brandNew.length) setFresh((f) => { const have = new Set(f.map((x) => x.id)); return [...f, ...brandNew.filter((x) => !have.has(x.id))].slice(0, 40); });
+    // The "N new" sheet is for news. A big batch at once is this device catching up (first sync of a new version), not news.
+    if (!quiet && known.size && brandNew.length && brandNew.length <= 25) setFresh((f) => { const have = new Set(f.map((x) => x.id)); return [...f, ...brandNew.filter((x) => !have.has(x.id))].slice(0, 40); });
     merge(got, full);
     got.forEach((it) => { if (it.dueAt && !it.submitted) scheduleReminders(it); else if (it.submitted) cancelReminders(it); });
   }, [merge]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -500,10 +517,24 @@ export function useEngine({ onOpenItem }) {
       try {
         const p = await Notifications.requestPermissionsAsync();
         let token = await load('pushToken', '');
-        if (p.granted) { try { token = (await Notifications.getExpoPushTokenAsync()).data || token; save('pushToken', token); } catch { /* that server is blocked here: keep the token we already had */ } }
-        setPush({ token, granted: !!p.granted }); pushRef.current = { granted: !!p.granted, token: !!token };
+        if (p.granted) {
+          // (given 8 seconds: on the school Wi-Fi this request does not fail, it just hangs)
+          try { token = (await Promise.race([Notifications.getExpoPushTokenAsync(), sleep(8000).then(() => { throw new Error('no answer'); })])).data || token; save('pushToken', token); }
+          catch { /* that server is blocked here: keep the token we already had */ }
+        }
+        // Never had a token and Expo's server is out of reach (a device that only ever sees the school Wi-Fi): let the bot
+        // register it. Done once per device address (Apple hands out a new one after a reinstall).
+        let relayed = await load('pushRelay', '');
+        if (p.granted && !token && cloud.canWrite(r.ck)) {
+          try {
+            const reg = await captureExpoRegistration();
+            if (reg && reg.deviceToken !== relayed) { sendOp({ t: 'pushreg', body: reg }); relayed = reg.deviceToken; save('pushRelay', relayed); }
+            else if (!reg) noteErr('pushreg', new Error('could not read this device’s notification address'));
+          } catch (e) { noteErr('pushreg', e); }
+        }
+        setPush({ token: token || (relayed ? 'through-icloud' : ''), granted: !!p.granted }); pushRef.current = { granted: !!p.granted, token: !!token, relayed: !!relayed };
         if (p.granted && token && (await load('pushReg', '')) !== token) { sendOp({ t: 'push', token }); save('pushReg', token); }
-      } catch { /* notifications stay off */ }
+      } catch (e) { noteErr('push', e); /* notifications stay off */ }
     })();
   }, [ready, canRegister, net.mode === 'bot']); // eslint-disable-line react-hooks/exhaustive-deps
 
