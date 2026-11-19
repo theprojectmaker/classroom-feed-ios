@@ -31,7 +31,10 @@ export function scanView(e, now = Date.now()) {
   if ((sc.req || 0) > (sc.start || 0)) return { phase: 'queued', busy: true, title: 'Your PC got the request', line: 'Starting the check…' + offNote };
   if ((sc.start || 0) > (sc.end || 0) && now - sc.start < 12 * 60 * 1000) {
     const mins = Math.floor((now - sc.start) / 60000);
-    return { phase: 'running', busy: true, title: 'Checking Google Classroom…', line: (sc.note || 'Looking at your classes') + (mins >= 4 ? ' · taking longer than usual' : '') };
+    // A check you asked for: follow it. One of the PC's own routine checks (every minute on school days): just mention it,
+    // and leave the button usable.
+    if (sc.by === 'app') return { phase: 'running', busy: true, title: 'Checking Google Classroom…', line: (sc.note || 'Looking at your classes') + (mins >= 4 ? ' · taking longer than usual' : '') };
+    return { phase: 'auto', busy: false, title: 'Check for new work', line: 'Your PC is checking Classroom right now (it does this by itself on school days).' };
   }
   if (sc.end) {
     const what = sc.err ? sc.err : sc.sent ? `${sc.sent} new post${sc.sent === 1 ? '' : 's'} found` : 'Nothing new';
