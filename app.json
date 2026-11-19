@@ -77,7 +77,7 @@
         "projectId": "703d363b-b587-4b9f-9dbf-3a01ee922f53"
       }
     },
-    "runtimeVersion": "shell-2",
+    "runtimeVersion": "shell-3",
     "updates": {
       "url": "https://u.expo.dev/703d363b-b587-4b9f-9dbf-3a01ee922f53",
       "checkAutomatically": "ON_LOAD",

@@ -6,10 +6,11 @@
 #   CF_SEED       the app's private iCloud connection details (JSON). Written into src/seed.js for THIS build only, so an
 #                 installed app works at once - also on a Wi-Fi that only allows Apple - with nothing for the user to set up.
 #   ARTIFACT_KEY  locks the .ipa while it is stored between the two jobs (this repository is public).
+#   ASC_KEY_ID, ASC_ISSUER_ID, ASC_API_KEY (.p8 contents)
+#                 App Store Connect API key. With these the Mac uploads the build straight to Apple (about a minute).
+#                 Without them, or if that upload fails, the second job sends it through Expo's free submit queue
+#                 instead, which can take anywhere from 15 minutes to over an hour.
 # Signing uses the certificates/profiles already stored on Expo (credentialsSource: remote).
-#
-# Two jobs on purpose: the Mac only builds (~10 min). The upload to Apple runs on a Linux runner,
-# because Expo's free submit queue can take over an hour and should not hold a scarce Mac.
 name: iOS build to TestFlight
 
 on:
@@ -20,14 +21,16 @@ on:
         type: boolean
         default: true
       runner:
-        description: Mac runner label (try macos-15 or macos-26 if macos-latest has no free machine)
+        description: Mac runner label (macos-15 gets a machine fastest; macos-latest has sat queued for 10 minutes)
         type: string
-        default: macos-latest
+        default: macos-15
 
 jobs:
   build:
-    runs-on: ${{ inputs.runner || 'macos-latest' }}
+    runs-on: ${{ inputs.runner || 'macos-15' }}
     timeout-minutes: 60
+    outputs:
+      sent: ${{ steps.direct.outputs.sent }}
     env:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       EAS_SKIP_AUTO_FINGERPRINT: '1'
@@ -75,14 +78,35 @@ jobs:
           if [ "$N" = "0" ] || [ -z "$N" ]; then echo "::error::The built app does not contain its iCloud connection details"; exit 1; fi
           echo "ok: connection details are in the app bundle"
 
+      # The fast way: this Mac hands the build to Apple itself. If it cannot (no key, or the upload fails), nothing is
+      # lost - the .ipa is kept and the second job sends it through Expo's queue as before.
+      - name: Send the build straight to Apple (skips the upload queue)
+        id: direct
+        if: ${{ inputs.submit }}
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_API_KEY: ${{ secrets.ASC_API_KEY }}
+          FASTLANE_SKIP_UPDATE_CHECK: '1'
+          FASTLANE_HIDE_CHANGELOG: '1'
+        run: |
+          if [ -z "$ASC_KEY_ID" ] || [ -z "$ASC_ISSUER_ID" ] || [ -z "$ASC_API_KEY" ]; then echo "::warning::No App Store Connect key: the upload goes through Expo's queue instead"; echo "sent=no" >> "$GITHUB_OUTPUT"; exit 0; fi
+          node -e "require('fs').writeFileSync(process.env.RUNNER_TEMP + '/asc_key.json', JSON.stringify({ key_id: process.env.ASC_KEY_ID, issuer_id: process.env.ASC_ISSUER_ID, key: process.env.ASC_API_KEY, duration: 1200, in_house: false }))"
+          if fastlane pilot upload --ipa "$RUNNER_TEMP/app.ipa" --api_key_path "$RUNNER_TEMP/asc_key.json" --app_identifier com.solyapps.classroomfeed --apple_id 6833237656 --skip_waiting_for_build_processing true; then
+            echo "sent=yes" >> "$GITHUB_OUTPUT"; echo "Uploaded straight to Apple. It shows in TestFlight after Apple's processing (usually 5-15 minutes)."
+          else
+            echo "::warning::The direct upload did not work: the upload goes through Expo's queue instead"; echo "sent=no" >> "$GITHUB_OUTPUT"
+          fi
+          rm -f "$RUNNER_TEMP/asc_key.json"
+
       - name: Lock the .ipa (this repository is public; the app stays private)
-        if: steps.seed.outputs.seeded == 'yes'
+        if: steps.seed.outputs.seeded == 'yes' && steps.direct.outputs.sent != 'yes'
         env:
           ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
         run: node scripts/lock.cjs enc "$RUNNER_TEMP/app.ipa" "$RUNNER_TEMP/app.ipa.enc"
 
       - name: Keep the locked .ipa for the upload job
-        if: steps.seed.outputs.seeded == 'yes'
+        if: steps.seed.outputs.seeded == 'yes' && steps.direct.outputs.sent != 'yes'
         uses: actions/upload-artifact@v4
         with:
           name: ios-ipa-locked
@@ -90,16 +114,17 @@ jobs:
           retention-days: 3
 
       - name: Keep the .ipa for the upload job (no private details inside)
-        if: steps.seed.outputs.seeded != 'yes'
+        if: steps.seed.outputs.seeded != 'yes' && steps.direct.outputs.sent != 'yes'
         uses: actions/upload-artifact@v4
         with:
           name: ios-ipa
           path: ${{ runner.temp }}/app.ipa
           retention-days: 3
 
+  # Only runs when the Mac could not upload the build itself.
   submit:
     needs: build
-    if: ${{ inputs.submit }}
+    if: ${{ inputs.submit && needs.build.outputs.sent != 'yes' }}
     runs-on: ubuntu-latest
     timeout-minutes: 300
     env:
