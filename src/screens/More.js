@@ -39,7 +39,7 @@ export function MoreScreen() {
   };
   return (
     <View style={{ flex: 1 }}>
-      <LargeTitle title="More" />
+      <LargeTitle title="Settings" />
       <ScrollView contentContainerStyle={s.page} keyboardShouldPersistTaps="handled">
         <View style={s.wrap}>
           <SectionTitle title="Connection" style={{ marginTop: 6 }} />

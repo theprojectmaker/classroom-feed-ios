@@ -1,13 +1,13 @@
 // One post: instructions, attachments, and "Your work" (add a file or photo, turn it in, follow it until Classroom has it).
-import React, { useContext, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, FlatList, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppCtx } from '../ctx';
-import { T, classPair, hair } from '../theme';
-import { Btn, Card, FileBadge, Header, Icon, Line, Pill, Progress, SectionTitle, StatePill, WorkRow, addedDetail, hasUpdate, isOpen, isWork, postedDetail, shortDue, whenLabel, workState } from '../ui';
+import { SIDEBAR, T, WIDE, classPair, hair } from '../theme';
+import { Btn, Card, FileBadge, Header, Icon, Progress, RowIcon, WorkRow, hasUpdate, isOpen, isWork, cleanBody, parseThread, postedDetail, shortDue, whenLabel, workState } from '../ui';
 import { fmtBytes } from '../lib';
 import { fileExists, openFile, resolveLocal } from '../files';
 import { turninView } from '../conn';
@@ -89,13 +89,68 @@ function TurnInSteps({ tv }) {
   );
 }
 
+/** The private-comment thread with your teacher, and a box to add to it. What you write is posted by your PC. */
+function PrivateComments({ item }) {
+  const e = useContext(AppCtx);
+  const [text, setText] = useState('');
+  const thread = useMemo(() => parseThread(item.comments), [item.comments]);
+  const shown = String(item.comments || '');
+  // Comments written here that are not in the thread yet: still travelling, refused, or posted since the PC last read it.
+  const mine = (item.mycomments || []).filter((c) => !(c.state === 'done' && shown.includes(String(c.text).split('\n')[0])));
+  const lineFor = (c) => {
+    const op = e.outbox.find((o) => o.id === c.id);
+    if (c.state === 'failed') return { txt: `Not posted${c.note ? ' — ' + c.note : ''}`, tone: T.red };
+    if (c.state === 'done') return { txt: 'Posted', tone: T.green };
+    if (op && !op.cloud && e.net.mode !== 'bot') return { txt: e.net.mode === 'offline' ? 'Waiting for a connection' : 'Sending…', tone: T.sub };
+    return { txt: 'Sent — your PC is posting it', tone: T.sub };
+  };
+  const send = () => { const t = text.trim(); if (!t) return; e.sendComment(item, t); setText(''); };
+  return (
+    <Card style={s.sideCard}>
+      <View style={s.cardHead}><Icon n="person-outline" s={18} c={T.sub} /><Text style={s.cardTitle}>Private comments</Text></View>
+      {thread.length === 0 && mine.length === 0 && <Text style={s.hint}>Only you and your teacher can see these.</Text>}
+      {thread.map((c, k) => (
+        <View key={k} style={s.cmt}>
+          <View style={s.cmtAvatar}><Text style={s.cmtAvatarTxt}>{c.who.charAt(0).toUpperCase()}</Text></View>
+          <View style={{ flex: 1 }}>
+            <Text style={s.cmtWho}>{c.who}  <Text style={s.cmtWhen}>{c.when}</Text></Text>
+            <Text style={s.cmtTxt}>{c.text}</Text>
+          </View>
+        </View>
+      ))}
+      {mine.map((c) => {
+        const l = lineFor(c);
+        return (
+          <View key={c.id} style={s.cmt}>
+            <View style={[s.cmtAvatar, { backgroundColor: T.brandSoft }]}><Icon n="person" s={15} c={T.brand} /></View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.cmtWho}>You  <Text style={[s.cmtWhen, { color: l.tone }]}>{l.txt}</Text></Text>
+              <Text style={s.cmtTxt}>{c.text}</Text>
+              {c.state === 'failed' && <Text onPress={() => e.sendComment(item, c.text)} style={s.cmtRetry}>Try again</Text>}
+            </View>
+          </View>
+        );
+      })}
+      <View style={s.cmtInputRow}>
+        <TextInput value={text} onChangeText={setText} placeholder="Add private comment…" placeholderTextColor={T.faint} multiline style={s.cmtInput} />
+        <Pressable onPress={send} disabled={!text.trim()} hitSlop={8} style={({ pressed }) => [s.sendBtn, !text.trim() && { backgroundColor: T.soft }, pressed && { opacity: 0.6 }]}>
+          <Icon n="arrow-up" s={19} c={text.trim() ? '#fff' : T.faint} />
+        </Pressable>
+      </View>
+    </Card>
+  );
+}
+
 export function ItemScreen({ id }) {
   const e = useContext(AppCtx);
-  const { items, pop, openPreview, updateItem, deleteItem, notify } = e;
+  const { items, pop, openPreview, deleteItem, notify } = e;
   const [askEmpty, setAskEmpty] = useState(false);
   const [askResubmit, setAskResubmit] = useState(false);
+  const { width } = useWindowDimensions();
   const item = items.find((i) => i.id === id);
   if (!item) return <View style={{ flex: 1 }}><Header title="Not found" onBack={pop} /></View>;
+  const cw = width >= WIDE ? width - SIDEBAR : width;
+  const two = cw >= 780; // big screen: instructions on the left, Your work + Private comments on the right — as Classroom does
   const pair = classPair(item.course);
   const work = isWork(item);
   const ws = workState(item);
@@ -108,6 +163,9 @@ export function ItemScreen({ id }) {
   const queued = tv.state === 'queued';
   const canClassroom = work && !item.mine && !!item.url;
   const sending = mine.some((f) => f.pending);
+  const cb = cleanBody(item.body); // the instructions without Classroom's own header lines, and the points if it had any
+  const stateWord = queued ? 'Turning in…' : turnedIn ? 'Turned in' : graded ? 'Graded' : ws === 'late' ? 'Missing' : ws === 'done' ? 'Done' : 'Assigned';
+  const stateColor = ws === 'late' ? T.red : turnedIn || graded || ws === 'done' ? T.sub : T.green;
 
   const addAssets = async (assets) => { for (const a of assets) await e.addWork(item, a); };
   const pickFile = async () => {
@@ -128,133 +186,138 @@ export function ItemScreen({ id }) {
     } catch { notify('The camera is not available here.'); }
   };
 
+  const failedBox = (title) => (
+    <View style={[s.result, { backgroundColor: T.redSoft }]}>
+      <Icon n="alert-circle" s={22} c={T.red} />
+      <View style={{ flex: 1 }}><Text style={[s.resultTitle, { color: T.red }]}>{title}</Text><Text style={s.resultSub}>{tv.note}</Text></View>
+    </View>
+  );
+
+  const yourWork = work && (
+    <Card style={s.sideCard}>
+      <View style={s.cardHead}>
+        <Text style={[s.cardTitle, { fontSize: 20 }]}>Your work</Text>
+        <Text style={[s.stateWord, { color: stateColor }]}>{stateWord}</Text>
+      </View>
+      {mine.length > 0 && <View style={{ gap: 8 }}>{mine.map((f) => <MyFile key={f.id} item={item} f={f} locked={queued || turnedIn} onPress={() => openPreview(f, files)} />)}</View>}
+
+      {/* Graded work can still take a new file (Classroom lets you resubmit); work that is turned in and waiting cannot. */}
+      {!turnedIn && !queued && (<>
+        <Text style={s.addLabel}>Add or create</Text>
+        <View style={s.addRow}>
+          <Btn small kind="soft" icon="document-attach-outline" label="File" onPress={pickFile} style={{ flex: 1 }} />
+          <Btn small kind="soft" icon="images-outline" label="Photos" onPress={pickPhotos} style={{ flex: 1 }} />
+          {Platform.OS !== 'web' && <Btn small kind="soft" icon="camera-outline" label="Camera" onPress={takePhoto} style={{ flex: 1 }} />}
+        </View>
+      </>)}
+
+      {canClassroom && (<>
+        {queued ? (<>
+          <TurnInSteps tv={tv} />
+          <Btn kind="gray" small icon="close" label="Cancel the turn-in" onPress={() => e.cancelTurnIn(item)} />
+        </>) : turnedIn || (tv.state === 'done' && !graded) ? (
+          <View style={[s.result, { backgroundColor: T.greenSoft }]}>
+            <Icon n="checkmark-circle" s={24} c={T.green} />
+            <View style={{ flex: 1 }}>
+              <Text style={[s.resultTitle, { color: T.green }]}>Turned in on Google Classroom</Text>
+              {!!(tv.state === 'done' && tv.at) && <Text style={s.resultSub}>{tv.note && !/^turned in$/i.test(tv.note) ? tv.note + ' · ' : ''}{whenLabel(tv.at)}</Text>}
+            </View>
+          </View>
+        ) : graded ? (<>
+          {tv.failed && failedBox('Your file was not sent')}
+          {/* Your teacher already graded it, so a normal turn-in has nothing to do. Handing work in again is a choice: say so, and ask first. */}
+          {mine.length === 0 ? (
+            <Text style={s.hint}>Your teacher already graded this one. To hand in new work for it anyway, add the file above.</Text>
+          ) : askResubmit ? (
+            <View style={{ gap: 10 }}>
+              <Text style={s.hint}>This sends your file{mine.length > 1 ? 's' : ''} to your teacher and marks the work as turned in again on Google Classroom.</Text>
+              <View style={s.addRow}>
+                <Btn kind="gray" label="Not now" onPress={() => setAskResubmit(false)} style={{ flex: 1 }} />
+                <Btn label="Yes, resubmit" onPress={() => { setAskResubmit(false); e.turnIn(item, { resubmit: true }); }} style={{ flex: 1.3 }} />
+              </View>
+            </View>
+          ) : (<>
+            <Text style={s.hint}>Your teacher already graded this one, so your file{mine.length > 1 ? 's have' : ' has'} not been sent. You can still hand it in again.</Text>
+            <Btn label={sending ? 'Resubmit when sent' : 'Resubmit'} onPress={() => setAskResubmit(true)} />
+          </>)}
+        </>) : (<>
+          {tv.failed && failedBox('It wasn’t turned in')}
+          {mine.length > 0 ? (
+            <Btn label={sending ? 'Turn in when sent' : 'Turn in'} onPress={() => e.turnIn(item)} />
+          ) : askEmpty ? (
+            <View style={{ gap: 10 }}>
+              <Text style={s.hint}>This hands it in on Google Classroom with nothing attached. Your teacher sees it as turned in.</Text>
+              <View style={s.addRow}>
+                <Btn kind="gray" label="Not yet" onPress={() => setAskEmpty(false)} style={{ flex: 1 }} />
+                <Btn label="Mark as done" onPress={() => { setAskEmpty(false); e.turnIn(item, { empty: true }); }} style={{ flex: 1.3 }} />
+              </View>
+            </View>
+          ) : (
+            <Btn kind="outline" label="Mark as done" onPress={() => setAskEmpty(true)} />
+          )}
+          <Text style={s.hint}>{mine.length ? `Your PC attaches your file${mine.length > 1 ? 's' : ''} and presses Turn in on Google Classroom for you. This works on school Wi-Fi too.` : 'Add your finished work above, then turn it in.'}</Text>
+        </>)}
+      </>)}
+
+      {!handedIn && !queued && (
+        <Pressable onPress={() => e.toggleSubmitted(item)} hitSlop={6} style={s.tick}>
+          <Icon n={item.submitted ? 'checkbox' : 'square-outline'} s={20} c={item.submitted ? T.green : T.faint} />
+          <Text style={s.tickTxt}>{item.submitted ? 'Ticked off on my list' : 'Tick off on my own list (doesn’t turn anything in)'}</Text>
+        </Pressable>
+      )}
+    </Card>
+  );
+  const comments = canClassroom ? <PrivateComments item={item} /> : (!!item.comments && <Card style={s.sideCard}><Text style={s.cardTitle}>Private comments</Text><Text style={s.body}>{item.comments}</Text></Card>);
+
   return (
     <View style={{ flex: 1, backgroundColor: T.bg }}>
       <Header title={item.course} pair={pair} onBack={pop} right={(
-        <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-          <Pressable onPress={() => updateItem(item.id, { starred: !item.starred })} hitSlop={10} style={s.hBtn}><Icon n={item.starred ? 'star' : 'star-outline'} s={23} c="#fff" /></Pressable>
+        <View style={{ flexDirection: 'row', gap: 2, alignItems: 'center' }}>
+          <Pressable onPress={() => e.togglePin(item)} hitSlop={10} style={({ pressed }) => [s.hBtn, pressed && { opacity: 0.5 }]}><Icon n={item.starred ? 'pin' : 'pin-outline'} s={22} c="#fff" /></Pressable>
           {item.mine && <Pressable onPress={() => { deleteItem(item.id); pop(); }} hitSlop={10} style={s.hBtn}><Icon n="trash-outline" s={22} c="#fff" /></Pressable>}
         </View>
       )} />
-      <ScrollView contentContainerStyle={s.page}>
-        <View style={s.wrap}>
-          <Text style={s.title}>{item.title}</Text>
-          <Text style={s.meta}>{[postedDetail(item), addedDetail(item)].filter(Boolean).join(' · ')}</Text>
-          <View style={s.pills}>
-            {work && <Pill label={item.dueAt || item.due ? 'Due ' + shortDue(item) : 'No due date'} tone={ws === 'late' ? 'red' : 'gray'} icon="time-outline" />}
-            {work && (ws === 'open' ? <Pill label="Assigned" tone="blue" /> : <StatePill item={item} />)}
-            {!!item.grade && ws !== 'graded' && <Pill label={item.grade} tone="green" icon="ribbon-outline" />}
-            {!work && <Pill label={item.kind === 'announcement' ? 'Announcement' : 'Material'} tone="gray" />}
-          </View>
+      {/* the keyboard pushes the page up instead of covering the comment box */}
+      <ScrollView contentContainerStyle={s.page} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
+        <View style={[s.wrap, two && s.wrapTwo]}>
+          <View style={two ? { flex: 1, minWidth: 0 } : null}>
+            <View style={s.headRow}>
+              <RowIcon item={item} size={46} />
+              <View style={{ flex: 1 }}>
+                <Text style={s.title}>{item.title}</Text>
+                <Text style={s.meta}>{[postedDetail(item), cb.points, item.starred ? 'Pinned' : ''].filter(Boolean).join(' · ')}</Text>
+              </View>
+            </View>
+            {work && (
+              <Card style={s.facts}>
+                <View style={s.fact}><Text style={s.factL}>Due</Text><Text style={[s.factV, ws === 'late' && { color: T.red }]} numberOfLines={2}>{item.dueAt || item.due ? shortDue(item) : 'No due date'}</Text></View>
+                <View style={s.factLine} />
+                <View style={s.fact}><Text style={s.factL}>Status</Text><Text style={[s.factV, { color: stateColor === T.sub ? T.ink : stateColor }]} numberOfLines={1}>{stateWord}</Text></View>
+                <View style={s.factLine} />
+                <View style={s.fact}><Text style={s.factL}>Grade</Text><Text style={[s.factV, !item.grade && { color: T.faint }]} numberOfLines={1}>{item.grade || 'Not graded'}</Text></View>
+              </Card>
+            )}
+            {hasUpdate(item) && (
+              <View style={s.update}><Icon n="notifications" s={17} c={T.red} /><Text style={s.updateTxt}>Updated · {item.change_note || item.changeNote}</Text></View>
+            )}
 
-          {hasUpdate(item) && (
-            <View style={s.update}><Icon n="notifications" s={17} c={T.red} /><Text style={s.updateTxt}>Updated · {item.change_note || item.changeNote}</Text></View>
-          )}
-
-          <Card style={{ paddingVertical: 16, marginTop: 16 }}>
-            {item.body ? <RichText text={item.body} /> : <Text style={s.none}>No instructions.</Text>}
-          </Card>
-
-          {theirs.length > 0 && (<>
-            <SectionTitle title={`Attachments · ${theirs.length}`} />
-            <Card>{theirs.map((f, k) => <Attachment key={f.id} f={f} last={k === theirs.length - 1} onPress={() => openPreview(f, files)} />)}</Card>
-          </>)}
-
-          {work && (<>
-            <SectionTitle title="Your work" />
-            <Card style={{ padding: 16, gap: 14 }}>
-              {mine.length > 0 && <View style={{ gap: 10 }}>{mine.map((f) => <MyFile key={f.id} item={item} f={f} locked={queued || turnedIn} onPress={() => openPreview(f, files)} />)}</View>}
-
-              {/* Graded work can still take a new file (Classroom lets you resubmit); work that is turned in and waiting cannot. */}
-              {!turnedIn && !queued && (
-                <View style={s.addRow}>
-                  <Btn kind="soft" icon="document-attach-outline" label="Add file" onPress={pickFile} style={{ flex: 1 }} />
-                  <Btn kind="soft" icon="images-outline" label="Photos" onPress={pickPhotos} style={{ flex: 1 }} />
-                  {Platform.OS !== 'web' && <Btn kind="soft" icon="camera-outline" label="Camera" onPress={takePhoto} style={{ flex: 1 }} />}
-                </View>
-              )}
-
-              {canClassroom && (<>
-                {(mine.length > 0 || queued || handedIn || tv.failed) && <Line />}
-                {queued ? (<>
-                  <TurnInSteps tv={tv} />
-                  <Btn kind="outline" small icon="close" label="Cancel the turn-in" onPress={() => e.cancelTurnIn(item)} />
-                </>) : turnedIn || (tv.state === 'done' && !graded) ? (
-                  <View style={[s.result, { backgroundColor: T.greenSoft }]}>
-                    <Icon n="checkmark-circle" s={24} c={T.green} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={[s.resultTitle, { color: T.green }]}>Turned in on Google Classroom</Text>
-                      {!!(tv.state === 'done' && tv.at) && <Text style={s.resultSub}>{tv.note && !/^turned in$/i.test(tv.note) ? tv.note + ' · ' : ''}{whenLabel(tv.at)}</Text>}
-                    </View>
-                  </View>
-                ) : graded ? (<>
-                  {tv.failed && (
-                    <View style={[s.result, { backgroundColor: T.redSoft }]}>
-                      <Icon n="alert-circle" s={22} c={T.red} />
-                      <View style={{ flex: 1 }}><Text style={[s.resultTitle, { color: T.red }]}>Your file was not sent</Text><Text style={s.resultSub}>{tv.note}</Text></View>
-                    </View>
-                  )}
-                  <View style={[s.result, { backgroundColor: T.greenSoft }]}>
-                    <Icon n="checkmark-circle" s={24} c={T.green} />
-                    <View style={{ flex: 1 }}><Text style={[s.resultTitle, { color: T.green }]}>{`Graded${item.grade ? ' · ' + item.grade : ''}`}</Text></View>
-                  </View>
-                  {/* Your teacher already graded it, so a normal turn-in has nothing to do. Handing work in again is a choice: say so, and ask first. */}
-                  {mine.length === 0 ? (
-                    <Text style={s.hint}>Your teacher already graded this one. To hand in new work for it anyway, add the file above.</Text>
-                  ) : askResubmit ? (
-                    <View style={{ gap: 10 }}>
-                      <Text style={s.hint}>This sends your file{mine.length > 1 ? 's' : ''} to your teacher and marks the work as turned in again on Google Classroom.</Text>
-                      <View style={s.addRow}>
-                        <Btn kind="outline" label="Not now" onPress={() => setAskResubmit(false)} style={{ flex: 1 }} />
-                        <Btn icon="paper-plane" label="Yes, resubmit" onPress={() => { setAskResubmit(false); e.turnIn(item, { resubmit: true }); }} style={{ flex: 1.4 }} />
-                      </View>
-                    </View>
-                  ) : (<>
-                    <Text style={s.hint}>Your teacher already graded this one, so your file{mine.length > 1 ? 's have' : ' has'} not been sent. You can still hand it in again.</Text>
-                    <Btn icon="paper-plane" label={sending ? `Resubmit when sent (${mine.length} file${mine.length === 1 ? '' : 's'})` : `Resubmit with ${mine.length} file${mine.length === 1 ? '' : 's'}`} onPress={() => setAskResubmit(true)} />
-                  </>)}
-                </>) : (<>
-                  {tv.failed && (
-                    <View style={[s.result, { backgroundColor: T.redSoft }]}>
-                      <Icon n="alert-circle" s={22} c={T.red} />
-                      <View style={{ flex: 1 }}><Text style={[s.resultTitle, { color: T.red }]}>It wasn’t turned in</Text><Text style={s.resultSub}>{tv.note}</Text></View>
-                    </View>
-                  )}
-                  {mine.length > 0 ? (
-                    <Btn icon="paper-plane" label={sending ? `Turn in when sent (${mine.length} file${mine.length === 1 ? '' : 's'})` : `Turn in ${mine.length} file${mine.length === 1 ? '' : 's'}`} onPress={() => e.turnIn(item)} />
-                  ) : askEmpty ? (
-                    <View style={{ gap: 10 }}>
-                      <Text style={s.hint}>This hands it in on Google Classroom with nothing attached (“Mark as done”). Your teacher sees it as turned in.</Text>
-                      <View style={s.addRow}>
-                        <Btn kind="outline" label="Not yet" onPress={() => setAskEmpty(false)} style={{ flex: 1 }} />
-                        <Btn kind="green" icon="checkmark" label="Yes, mark as done" onPress={() => { setAskEmpty(false); e.turnIn(item, { empty: true }); }} style={{ flex: 1.4 }} />
-                      </View>
-                    </View>
-                  ) : (
-                    <Btn kind="outline" icon="checkmark-done" label="Nothing to attach — mark as done" onPress={() => setAskEmpty(true)} />
-                  )}
-                  <Text style={s.hint}>{mine.length ? 'Your PC attaches your file' + (mine.length > 1 ? 's' : '') + ' and presses Turn in on Google Classroom for you. This works on school Wi-Fi too.' : 'Add the file or photo of your finished work above, then turn it in.'}</Text>
-                </>)}
-              </>)}
-
-              {!handedIn && !queued && (
-                <Pressable onPress={() => e.toggleSubmitted(item)} hitSlop={6} style={s.tick}>
-                  <Icon n={item.submitted ? 'checkbox' : 'square-outline'} s={20} c={item.submitted ? T.green : T.faint} />
-                  <Text style={s.tickTxt}>{item.submitted ? 'Ticked off on my list' : 'Tick off on my own list (doesn’t turn anything in)'}</Text>
-                </Pressable>
-              )}
+            <Card style={{ paddingVertical: 16, marginTop: 12 }}>
+              {cb.text ? <RichText text={cb.text} /> : <Text style={s.none}>No instructions.</Text>}
             </Card>
-          </>)}
 
-          {!!item.comments && (<>
-            <SectionTitle title="Private comments" />
-            <Card style={{ padding: 16 }}><Text style={s.body}>{item.comments}</Text></Card>
-          </>)}
+            {theirs.length > 0 && (<>
+              <Text style={s.blockTitle}>Attachments</Text>
+              <Card>{theirs.map((f, k) => <Attachment key={f.id} f={f} last={k === theirs.length - 1} onPress={() => openPreview(f, files)} />)}</Card>
+            </>)}
 
-          <StepsCard item={item} />
-          <NotesCard item={item} />
+            {!two && yourWork}
+            {!two && comments}
 
-          {!!item.url && <View style={{ marginTop: 18 }}><Btn kind="ghost" icon="open-outline" label="Open in Google Classroom" onPress={() => Linking.openURL(item.url).catch(() => notify('That only opens on normal internet.'))} /></View>}
+            <StepsCard item={item} />
+            <NotesCard item={item} />
+            {!!item.url && <View style={{ marginTop: 18 }}><Btn kind="ghost" icon="open-outline" label="Open in Google Classroom" onPress={() => Linking.openURL(item.url).catch(() => notify('That only opens on normal internet.'))} /></View>}
+          </View>
+          {two && <View style={s.side}>{yourWork}{comments}</View>}
         </View>
       </ScrollView>
     </View>
@@ -346,29 +409,53 @@ export function AttachPicker({ incoming, items, onPick, onClose }) {
 
 const s = StyleSheet.create({
   page: { paddingBottom: 120 },
-  wrap: { width: '100%', maxWidth: 860, alignSelf: 'center', paddingHorizontal: 16, paddingTop: 18 },
+  wrap: { width: '100%', maxWidth: 760, alignSelf: 'center', paddingHorizontal: 16, paddingTop: 18 },
+  wrapTwo: { maxWidth: 1180, flexDirection: 'row', alignItems: 'flex-start', gap: 18 },
+  side: { width: 360 },
+  sideCard: { padding: 16, gap: 12, marginTop: 12 },
+  cardHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  cardTitle: { flex: 1, fontSize: 17, fontWeight: '600', color: T.ink, letterSpacing: -0.3 },
+  stateWord: { fontSize: 15, fontWeight: '600' },
+  addLabel: { fontSize: 13, color: T.sub, textTransform: 'uppercase', letterSpacing: 0.2, marginBottom: -4 },
+  headRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 13 },
+  facts: { flexDirection: 'row', marginTop: 16, paddingVertical: 12 },
+  fact: { flex: 1, paddingHorizontal: 14, gap: 3 },
+  factLine: { width: hair, backgroundColor: T.line },
+  factL: { fontSize: 12.5, color: T.sub, textTransform: 'uppercase', letterSpacing: 0.2 },
+  factV: { fontSize: 16, fontWeight: '600', color: T.ink, letterSpacing: -0.2 },
+  blockTitle: { fontSize: 13, color: T.sub, textTransform: 'uppercase', letterSpacing: 0.2, marginTop: 22, marginBottom: 7, marginLeft: 16 },
+  cmt: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
+  cmtAvatar: { width: 30, height: 30, borderRadius: 15, backgroundColor: T.soft, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  cmtAvatarTxt: { fontSize: 13.5, fontWeight: '700', color: T.sub },
+  cmtWho: { fontSize: 14, fontWeight: '600', color: T.ink },
+  cmtWhen: { fontSize: 12.5, fontWeight: '400', color: T.sub },
+  cmtTxt: { fontSize: 15.5, color: T.text, lineHeight: 21, marginTop: 1 },
+  cmtRetry: { fontSize: 14, color: T.brand, fontWeight: '500', marginTop: 4 },
+  cmtInputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 2 },
+  cmtInput: { flex: 1, minHeight: 38, maxHeight: 120, borderRadius: 19, backgroundColor: T.soft, paddingHorizontal: 14, paddingTop: 9, paddingBottom: 9, fontSize: 16, color: T.ink, outlineStyle: 'none' },
+  sendBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: T.brand, alignItems: 'center', justifyContent: 'center', marginBottom: 1 },
   hBtn: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
-  title: { fontSize: 27, fontWeight: '800', color: T.ink, letterSpacing: -0.4, lineHeight: 33 },
-  meta: { fontSize: 13, color: T.sub, marginTop: 6 },
+  title: { fontSize: 26, fontWeight: '700', color: T.ink, letterSpacing: -0.3, lineHeight: 31 },
+  meta: { fontSize: 14, color: T.sub, marginTop: 4 },
   pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   update: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 14, padding: 12, borderRadius: 14, backgroundColor: T.redSoft },
-  updateTxt: { flex: 1, color: T.red, fontWeight: '700', fontSize: 14 },
+  updateTxt: { flex: 1, color: T.red, fontWeight: '600', fontSize: 14.5 },
   none: { fontSize: 15, color: T.sub, paddingHorizontal: 16 },
   body: { fontSize: 15.5, lineHeight: 23, color: T.text },
   fileRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
   rowLine: { borderBottomWidth: hair, borderBottomColor: T.line },
-  fileName: { fontSize: 14.5, color: T.ink, fontWeight: '600' },
-  fileSub: { fontSize: 12.5, color: T.sub, marginTop: 2 },
+  fileName: { fontSize: 15.5, color: T.ink, fontWeight: '500', letterSpacing: -0.2 },
+  fileSub: { fontSize: 13, color: T.sub, marginTop: 2 },
   myFile: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 10, borderRadius: 14, backgroundColor: T.bg },
   xBtn: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
   addRow: { flexDirection: 'row', gap: 10 },
   step: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  stepTxt: { fontSize: 14.5, color: T.faint, fontWeight: '600' },
+  stepTxt: { fontSize: 15, color: T.faint, fontWeight: '500' },
   stepNote: { fontSize: 13, color: T.sub, marginLeft: 31 },
   result: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14 },
-  resultTitle: { fontSize: 15.5, fontWeight: '800' },
+  resultTitle: { fontSize: 15.5, fontWeight: '600' },
   resultSub: { fontSize: 13, color: T.sub, marginTop: 2 },
-  hint: { fontSize: 12.5, color: T.sub, lineHeight: 18 },
+  hint: { fontSize: 13.5, color: T.sub, lineHeight: 19 },
   tick: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingTop: 2 },
   tickTxt: { fontSize: 13.5, color: T.sub, flex: 1 },
   previewBar: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 8, borderBottomWidth: hair, borderBottomColor: T.line },

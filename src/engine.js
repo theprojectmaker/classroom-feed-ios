@@ -145,6 +145,8 @@ export function useEngine({ onOpenItem }) {
       ];
       map.set(i.id, {
         ...old, ...i, files, dueAt: typeof i.dueAt === 'number' ? i.dueAt : old.dueAt || 0, // the bot's word on the due time is final (an older copy may hold a wrong one)
+        // private comments written here that the bot has not heard of yet stay visible until it has
+        mycomments: [...(i.mycomments || []), ...(old.mycomments || []).filter((c) => c.state === 'sending' && r.outbox.some((o) => o.id === c.id) && !(i.mycomments || []).some((x) => x.id === c.id))],
         submitted: waiting('state', i.id) ? old.submitted : i.submitted,
         ...(waiting('turnin', i.id) ? { turnin: old.turnin, turnin_note: old.turnin_note, turnin_at: old.turnin_at } : {}),
       });
@@ -456,6 +458,20 @@ export function useEngine({ onOpenItem }) {
   /** Asks the PC to look at Google Classroom right now. Progress arrives in remote.scan. */
   const scanNow = useCallback(() => { hot(7 * 60 * 1000); return sendOp({ t: 'scan' }); }, [sendOp]);
 
+  /** A private comment for the teacher: shown at once, posted on the assignment in Google Classroom by your PC. */
+  const sendComment = useCallback((item, text) => {
+    const t = String(text || '').trim().slice(0, 2000);
+    if (!t || item.mine || !item.url) return;
+    const id = sendOp({ t: 'comment', item: item.id, text: t });
+    setItems((cur) => cur.map((i) => (i.id === item.id ? { ...i, mycomments: [...(i.mycomments || []), { id, text: t, at: Date.now(), state: 'sending', note: '' }] } : i)));
+  }, [sendOp]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Pin / unpin a post. Pinned posts sit at the top of Classes. (Kept on this device.) */
+  const togglePin = useCallback((item) => {
+    updateItem(item.id, { starred: !item.starred });
+    notify(item.starred ? 'Unpinned' : 'Pinned — it stays at the top of Classes');
+  }, [updateItem, notify]);
+
   /** "Send me a test notification" as a request, so it also works where the bot cannot be reached directly. */
   const pushTestViaRequest = useCallback(() => sendOp({ t: 'pushtest' }), [sendOp]);
 
@@ -561,8 +577,8 @@ export function useEngine({ onOpenItem }) {
     ready, cfg, ck, items, saved, remote, net, outbox, jobs, progress, fresh, notice, refreshing, wanted, push,
     api: apiRef.current, canSend: net.mode === 'bot' || cloud.canWrite(ck), canWriteCloud: cloud.canWrite(ck), canReadCloud: cloud.canRead(ck),
     notify, sync, refresh: () => sync({ manual: true }), setFresh, updateItem, onSaved, getFile, wantFile,
-    addWork, retryWork, removeWork, turnIn, cancelTurnIn, toggleSubmitted, scanNow, pushTestViaRequest, testLoop, addItem, deleteItem,
+    addWork, retryWork, removeWork, turnIn, cancelTurnIn, toggleSubmitted, scanNow, pushTestViaRequest, sendComment, togglePin, testLoop, addItem, deleteItem,
     onAuth, signOut, setSchoolMode, applyIncoming,
   }), [ready, cfg, ck, items, saved, remote, net, outbox, jobs, progress, fresh, notice, refreshing, wanted, push,
-    notify, sync, updateItem, onSaved, getFile, wantFile, addWork, retryWork, removeWork, turnIn, cancelTurnIn, toggleSubmitted, scanNow, pushTestViaRequest, testLoop, addItem, deleteItem, onAuth, signOut, setSchoolMode, applyIncoming]);
+    notify, sync, updateItem, onSaved, getFile, wantFile, addWork, retryWork, removeWork, turnIn, cancelTurnIn, toggleSubmitted, scanNow, pushTestViaRequest, sendComment, togglePin, testLoop, addItem, deleteItem, onAuth, signOut, setSchoolMode, applyIncoming]);
 }

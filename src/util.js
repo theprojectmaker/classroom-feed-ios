@@ -102,3 +102,45 @@ export const snippetOf = (item) => String(item.body || '').split('\n').map((x) =
 export const isNew = (item) => (item.created_at || 0) > Date.now() - DAY;
 export const hasUpdate = (item) => !!(item.change_note || item.changeNote) && (item.changed_at || 0) > Date.now() - 7 * DAY;
 export const fileExt = (name = '') => { const e = (String(name).split('.').pop() || '').toLowerCase(); return e && e.length <= 5 && e !== String(name).toLowerCase() ? e : ''; };
+
+/* ---------- grouping the way Google Classroom does ---------- */
+const startOfWeek = (ms = Date.now()) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - d.getDay()); return d.getTime(); }; // Sunday
+export { startOfWeek };
+/** For the Missing and Done lists: how long ago it was due (or posted). */
+export const PAST_BUCKETS = ['This week', 'Last week', 'Earlier'];
+export function pastBucketOf(i) {
+  const t = i.dueAt || i.posted_at || i.created_at || 0;
+  const w = startOfWeek();
+  return t >= w ? 'This week' : t >= w - 7 * DAY ? 'Last week' : 'Earlier';
+}
+export const monthKey = (i) => { const d = new Date(i.posted_at || i.created_at || 0); return d.getFullYear() * 12 + d.getMonth(); };
+export const monthLabel = (i) => new Date(i.posted_at || i.created_at || 0).toLocaleDateString([], { month: 'long', year: 'numeric' });
+export const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
+
+/**
+ * Classroom's own header lines sometimes come along at the top of a post's text (its topic, "•", "2 points", "|",
+ * "Due …"). This takes them off and hands back the points, when there are any.
+ */
+export function cleanBody(body) {
+  const L = String(body || '').split('\n');
+  const junk = (x) => /^(•|\||Due\b.*|No due date|Ungraded|\(?Edited.*)$/i.test(x);
+  const pts = (x) => /^\d+(\.\d+)? points?$/i.test(x);
+  let k = L.length > 1 && L[1].trim() === '•' ? 1 : 0; // a topic line is only recognisable by the bullet after it
+  let points = '';
+  for (; k < L.length && k < 9; k++) {
+    const x = L[k].trim();
+    if (pts(x)) points = x; else if (x && !junk(x)) break;
+  }
+  return { text: L.slice(k).join('\n').trim(), points };
+}
+
+/** The private-comment thread as Classroom shows it ("NAME • date", then the text, repeated) -> [{who, when, text}]. */
+export function parseThread(text) {
+  const out = [];
+  for (const line of String(text || '').split('\n')) {
+    const m = line.match(/^(.{1,70}?) • (.{1,40})$/);
+    if (m) out.push({ who: m[1].trim(), when: m[2].trim(), text: '' });
+    else if (out.length) out[out.length - 1].text += (out[out.length - 1].text ? '\n' : '') + line;
+  }
+  return out.filter((c) => c.text.trim());
+}

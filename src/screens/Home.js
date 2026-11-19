@@ -1,154 +1,182 @@
-// Home: where things stand right now — the Scan button, what is due, what is new.
+// Classes — the first screen, laid out like Google Classroom's home: one card per class. Above the cards: when Classroom
+// was last checked (with the button to check now), your pinned posts, and three numbers that open the To-do list.
 import React, { useContext, useMemo } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { AppCtx } from '../ctx';
-import { T, WIDE, shadow } from '../theme';
-import { Btn, Card, Empty, Icon, LinearGradient, SectionTitle, WorkRow, bucketOf, hasUpdate, isNew, isOpen, useNow, workState } from '../ui';
+import { SIDEBAR, T, WIDE, classPair, hair } from '../theme';
+import { Btn, Card, Empty, Icon, IconBtn, LargeTitle, LinearGradient, SectionTitle, WorkRow, isNew, isOpen, shortDue, useNow, workState } from '../ui';
 import { connInfo, scanView } from '../conn';
 
 /** Small "Live · iCloud" chip. Tapping it opens the connection page. */
-export function ConnChip({ light }) {
+export function ConnChip() {
   const e = useContext(AppCtx);
   const now = useNow(10000);
   const c = connInfo(e, now);
-  const color = c.tone === 'green' ? '#18B877' : c.tone === 'red' ? T.red : '#A0A8B8';
+  const color = c.tone === 'green' ? T.greenFill : c.tone === 'red' ? T.redFill : '#AEAEB2';
   const waiting = e.outbox.filter((o) => o.t !== 'hello').length + e.jobs.length; // the app's own status report is not something "you" are sending
   return (
-    <Pressable onPress={e.openConnection} hitSlop={8} style={[s.conn, light && { backgroundColor: '#ffffff26', borderColor: '#ffffff40' }]}>
+    <Pressable onPress={e.openConnection} hitSlop={8} style={({ pressed }) => [s.conn, pressed && { opacity: 0.6 }]}>
       <View style={[s.connDot, { backgroundColor: color }]} />
-      <Text style={[s.connTxt, light && { color: '#fff' }]}>{c.label}{waiting ? ` · ${waiting} sending` : ''}</Text>
+      <Text style={s.connTxt}>{c.label}{waiting ? ` · ${waiting} sending` : ''}</Text>
     </Pressable>
   );
 }
 
-/** The scan button. One tap asks the PC to check Google Classroom now; the card then follows it step by step. */
-export function ScanCard() {
+/** One row that says when Classroom was last checked, and lets you check it now. It follows a check step by step. */
+export function ScanStrip() {
   const e = useContext(AppCtx);
   const peek = scanView(e);
   const now = useNow(peek.busy ? 1500 : 15000);
   const v = scanView(e, now);
   const c = connInfo(e, now);
   return (
-    <LinearGradient colors={v.error ? ['#B4232F', '#7E1620'] : ['#2F74FF', '#173FB8']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[s.scan, shadow]}>
-      <View style={s.scanGlow} />
-      <View style={{ flex: 1 }}>
-        <Text style={s.scanTitle}>{v.title}</Text>
-        <Text style={s.scanLine}>{v.line}</Text>
-        <View style={s.scanMeta}>
-          <View style={[s.connDot, { backgroundColor: c.pcOnline ? '#5BE3A8' : '#FFC46B' }]} />
-          <Text style={s.scanMetaTxt}>{c.pcLine}</Text>
-        </View>
+    <Card style={s.scan}>
+      <View style={[s.scanIcon, { backgroundColor: v.error ? T.redSoft : v.fresh ? T.greenSoft : T.brandSoft }]}>
+        {v.busy ? <ActivityIndicator color={T.brand} /> : <Icon n={v.error ? 'alert' : v.fresh ? 'checkmark' : 'sync'} s={21} c={v.error ? T.red : v.fresh ? T.green : T.brand} />}
       </View>
-      <Pressable onPress={v.busy ? undefined : () => e.scanNow()} disabled={v.busy} style={({ pressed }) => [s.scanBtn, pressed && { transform: [{ scale: 0.96 }] }]}>
-        {v.busy ? <ActivityIndicator color={T.brand} /> : <Icon n={v.fresh ? 'checkmark' : 'scan'} s={28} c={v.fresh ? T.green : T.brand} />}
-        <Text style={[s.scanBtnTxt, v.fresh && { color: T.green }]}>{v.busy ? 'Working' : v.fresh ? 'Done' : 'Scan'}</Text>
-      </Pressable>
-    </LinearGradient>
+      <View style={{ flex: 1 }}>
+        <Text style={s.scanTitle} numberOfLines={2}>{v.busy ? v.title : 'Google Classroom'}</Text>
+        <Text style={[s.scanLine, v.error && { color: T.red }]} numberOfLines={3}>{v.line}</Text>
+        <Text style={s.scanPc} numberOfLines={1}>{c.pcLine}</Text>
+      </View>
+      {!v.busy && <Btn small kind="soft" label="Check now" onPress={() => e.scanNow()} />}
+    </Card>
   );
 }
 
-export function HomeScreen() {
+/** What one class card shows: the next things due, and how much is open. */
+function useClassCards(items) {
+  return useMemo(() => {
+    const m = new Map();
+    for (const i of items) {
+      const k = i.course || 'Other';
+      const c = m.get(k) || { name: k, todo: 0, late: 0, fresh: 0, next: [] };
+      if (isNew(i)) c.fresh++;
+      if (isOpen(i)) {
+        if (workState(i) === 'late') c.late++;
+        else { c.todo++; if (i.dueAt) c.next.push(i); }
+      }
+      m.set(k, c);
+    }
+    const out = [...m.values()].sort((a, b) => a.name.localeCompare(b.name));
+    out.forEach((c) => { c.next = c.next.sort((a, b) => a.dueAt - b.dueAt).slice(0, 2); });
+    return out;
+  }, [items]);
+}
+
+export function ClassesScreen() {
   const e = useContext(AppCtx);
-  const { items, openItem, refresh, refreshing, cfg } = e;
+  const { items, openItem, openClass, refresh, refreshing, cfg } = e;
   const { width } = useWindowDimensions();
   const wide = width >= WIDE;
+  const cw = wide ? width - SIDEBAR : width;
   const now = useNow(60000);
+  const conn = connInfo(e, now);
+  const classes = useClassCards(items);
+  const cols = cw >= 1000 ? 3 : cw >= 620 ? 2 : 1;
+  const cardW = Math.floor((cw - 32 - 14 * (cols - 1)) / cols) - 1; // a hair under, so rounding never drops the last card to the next row
+  const pinned = useMemo(() => items.filter((i) => i.starred), [items]);
   const d = useMemo(() => {
     const open = items.filter(isOpen);
-    const b = (n) => open.filter((i) => bucketOf(i) === n).length;
-    const late = open.filter((i) => workState(i) === 'late').sort((a, c) => (c.dueAt || 0) - (a.dueAt || 0));
-    const next = open.filter((i) => workState(i) !== 'late' && i.dueAt).sort((a, c) => a.dueAt - c.dueAt);
-    const undated = open.filter((i) => workState(i) !== 'late' && !i.dueAt);
-    const latest = items.filter((i) => isNew(i) || hasUpdate(i)).sort((a, c) => Math.max(c.created_at || 0, c.changed_at || 0) - Math.max(a.created_at || 0, a.changed_at || 0));
-    return { missing: late.length, today: b('Today'), week: b('Today') + b('Tomorrow') + b('This week'), todo: open.length, up: [...late.slice(0, 2), ...next, ...undated].slice(0, 6), latest: latest.slice(0, 6) };
-  }, [items, now]); // eslint-disable-line react-hooks/exhaustive-deps
-  const conn = connInfo(e, now);
-  const hour = new Date(now).getHours();
-  const hello = hour < 5 ? 'Still up' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+    const today0 = new Date(now); today0.setHours(0, 0, 0, 0);
+    const end = today0.getTime() + 86400000;
+    return { assigned: open.filter((i) => workState(i) !== 'late').length, missing: open.filter((i) => workState(i) === 'late').length, today: open.filter((i) => i.dueAt && i.dueAt >= now && i.dueAt < end).length };
+  }, [items, now]);
   const first = String(cfg.name || '').split(/[\s._-]/)[0];
-  const tiles = [['Missing', d.missing, d.missing ? T.red : T.faint, 'missing', 'alert-circle'], ['Due today', d.today, d.today ? T.amber : T.faint, 'todo', 'today'], ['This week', d.week, T.brand, 'todo', 'calendar'], ['To do', d.todo, T.ink, 'todo', 'list']];
-
-  const upNext = (
-    <View style={wide && { flex: 1 }}>
-      <SectionTitle title="Up next" right={d.todo > d.up.length ? <Text style={s.link} onPress={() => e.goTab('todo', 'todo')}>See all {d.todo}</Text> : null} />
-      <Card>
-        {d.up.length ? d.up.map((i, k) => <WorkRow key={i.id} item={i} showCourse last={k === d.up.length - 1} onPress={() => openItem(i.id)} />)
-          : <Empty icon="checkmark-done" title="You’re all caught up" text="Nothing is waiting to be done." />}
-      </Card>
-    </View>
-  );
-  const latest = (
-    <View style={wide && { flex: 1 }}>
-      <SectionTitle title="New and updated" />
-      <Card>
-        {d.latest.length ? d.latest.map((i, k) => <WorkRow key={i.id} item={i} showCourse last={k === d.latest.length - 1} note={hasUpdate(i) ? (i.change_note || i.changeNote) : undefined} onPress={() => openItem(i.id)} />)
-          : <Empty icon="notifications-outline" title="Nothing new today" text="New posts and grades show up here, and you get a notification." />}
-      </Card>
-    </View>
-  );
+  const tiles = [['Assigned', d.assigned, T.brand, 'todo'], ['Missing', d.missing, d.missing ? T.red : T.faint, 'missing'], ['Due today', d.today, d.today ? T.amber : T.faint, 'todo']];
 
   return (
-    <ScrollView contentContainerStyle={[s.page, wide && { paddingHorizontal: 28 }]} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={T.brand} />}>
-      <View style={s.top}>
-        <View style={{ flex: 1 }}>
-          <Text style={s.hello} numberOfLines={1}>{hello}{first ? `, ${first.charAt(0).toUpperCase() + first.slice(1)}` : ''}</Text>
-          <Text style={s.date}>{new Date(now).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</Text>
-        </View>
-        <ConnChip />
-      </View>
-
-      {!cfg.token && !e.canReadCloud ? (
-        <Card style={{ padding: 20, gap: 10 }}>
-          <Text style={s.cardTitle}>Sign in to get started</Text>
-          <Text style={s.cardTxt}>Sign in once on normal Wi-Fi. On the school Wi-Fi, update Classroom Feed in the TestFlight app instead: the newest version works there right away, with nothing to set up.</Text>
-          <Btn label="Sign in" icon="log-in-outline" onPress={() => e.goTab('more')} />
-        </Card>
-      ) : (<>
-        {conn.stuck && (
-          <Card style={{ padding: 18, gap: 8, marginBottom: 14 }}>
-            <Text style={s.cardTitle}>Update Classroom Feed in TestFlight</Text>
-            <Text style={s.cardTxt}>This copy of the app can’t use iCloud yet, so nothing can arrive on this Wi-Fi. Open the TestFlight app and tap Update next to Classroom Feed. The new version works here right away, with nothing to set up.</Text>
+    <View style={{ flex: 1 }}>
+      <LargeTitle title="Classes" subtitle={new Date(now).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }) + (wide && first ? ` · Hi ${first.charAt(0).toUpperCase() + first.slice(1)}` : '')}
+        right={<View style={s.titleRight}>{!wide && <ConnChip />}<IconBtn icon="search" onPress={e.openFind} /></View>} />
+      <ScrollView contentContainerStyle={s.page} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={T.faint} />}>
+        {!cfg.token && !e.canReadCloud ? (
+          <Card style={s.note}>
+            <Text style={s.noteTitle}>Sign in to get started</Text>
+            <Text style={s.noteTxt}>Sign in once on normal Wi-Fi. On the school Wi-Fi, update Classroom Feed in the TestFlight app instead: the newest version works there right away, with nothing to set up.</Text>
+            <Btn label="Sign in" onPress={() => e.goTab('more')} />
           </Card>
-        )}
-        <ScanCard />
-        <View style={s.tiles}>
-          {tiles.map(([label, n, color, seg, icon]) => (
-            <Pressable key={label} onPress={() => e.goTab('todo', seg)} style={({ pressed }) => [s.tile, pressed && { opacity: 0.7 }]}>
-              <Icon n={icon} s={17} c={color} />
-              <Text style={[s.tileN, { color }]}>{n}</Text>
-              <Text style={s.tileL} numberOfLines={1}>{label}</Text>
-            </Pressable>
-          ))}
-        </View>
-        {wide ? <View style={{ flexDirection: 'row', gap: 22 }}>{upNext}{latest}</View> : <>{upNext}{latest}</>}
-        {items.length === 0 && <Text style={s.hint}>Your classes appear here after the first sync. Pull down to refresh, or tap Scan.</Text>}
-      </>)}
-    </ScrollView>
+        ) : (<>
+          {conn.stuck && (
+            <Card style={s.note}>
+              <Text style={s.noteTitle}>Update Classroom Feed in TestFlight</Text>
+              <Text style={s.noteTxt}>This copy of the app can’t use iCloud yet, so nothing can arrive on this Wi-Fi. Open the TestFlight app and tap Update next to Classroom Feed. The new version works here right away, with nothing to set up.</Text>
+            </Card>
+          )}
+          <ScanStrip />
+          <View style={s.tiles}>
+            {tiles.map(([label, n, color, seg]) => (
+              <Pressable key={label} onPress={() => e.goTab('todo', seg)} style={({ pressed }) => [s.tile, pressed && { opacity: 0.6 }]}>
+                <Text style={[s.tileN, { color }]}>{n}</Text>
+                <Text style={s.tileL} numberOfLines={1}>{label}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          {pinned.length > 0 && (<>
+            <SectionTitle title="Pinned" />
+            <Card>{pinned.map((i, k) => <WorkRow key={i.id} item={i} showCourse last={k === pinned.length - 1} onPress={() => openItem(i.id)} onLongPress={() => e.togglePin(i)} />)}</Card>
+          </>)}
+
+          <SectionTitle title="Your classes" style={pinned.length ? null : { marginTop: 22 }} />
+          {classes.length === 0 && <Empty icon="school-outline" title="No classes yet" text="They appear after the first sync. Pull down to refresh, or tap Check now." />}
+          <View style={s.grid}>
+            {classes.map((c) => (
+              <Pressable key={c.name} onPress={() => openClass(c.name)} style={({ pressed }) => [s.classCard, { width: cardW }, pressed && { opacity: 0.75 }]}>
+                <LinearGradient colors={classPair(c.name)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.banner}>
+                  <View style={s.bannerGlow} />
+                  <Text style={s.bannerTitle} numberOfLines={2}>{c.name}</Text>
+                </LinearGradient>
+                <View style={s.classBody}>
+                  {c.next.length === 0 ? <Text style={s.nextNone}>{c.late ? 'Nothing else coming up' : 'No work due soon'}</Text> : c.next.map((i) => (
+                    <View key={i.id} style={s.nextRow}>
+                      <Text style={s.nextDue} numberOfLines={1}>{'Due ' + shortDue(i)}</Text>
+                      <Text style={s.nextTitle} numberOfLines={1}>{i.title}</Text>
+                    </View>
+                  ))}
+                </View>
+                <View style={s.classFoot}>
+                  <Text style={s.footTxt}>{c.todo ? `${c.todo} assigned` : 'All caught up'}</Text>
+                  {c.late > 0 && <Text style={[s.footTxt, { color: T.red, fontWeight: '600' }]}>{c.late} missing</Text>}
+                  {c.fresh > 0 && <Text style={[s.footTxt, { color: T.brand, fontWeight: '600' }]}>{c.fresh} new</Text>}
+                </View>
+              </Pressable>
+            ))}
+          </View>
+        </>)}
+      </ScrollView>
+    </View>
   );
 }
 
 const s = StyleSheet.create({
-  page: { paddingHorizontal: 16, paddingBottom: 110, paddingTop: 6 },
-  top: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 4, paddingTop: 12, paddingBottom: 16 },
-  hello: { fontSize: 28, fontWeight: '800', color: T.ink, letterSpacing: -0.5 },
-  date: { fontSize: 14, color: T.sub, marginTop: 2 },
-  conn: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 12, height: 34, borderRadius: 17, backgroundColor: '#fff', borderWidth: 1, borderColor: T.line },
-  connDot: { width: 9, height: 9, borderRadius: 5 },
-  connTxt: { fontSize: 13, fontWeight: '700', color: T.text },
-  scan: { borderRadius: 24, padding: 20, flexDirection: 'row', alignItems: 'center', gap: 16, overflow: 'hidden' },
-  scanGlow: { position: 'absolute', right: -60, top: -80, width: 240, height: 240, borderRadius: 120, backgroundColor: '#ffffff14' },
-  scanTitle: { color: '#fff', fontSize: 21, fontWeight: '800', letterSpacing: -0.3 },
-  scanLine: { color: '#ffffffe0', fontSize: 14.5, marginTop: 5, lineHeight: 20 },
-  scanMeta: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 12 },
-  scanMetaTxt: { color: '#ffffffb8', fontSize: 12.5, fontWeight: '600' },
-  scanBtn: { width: 84, height: 84, borderRadius: 42, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', gap: 2 },
-  scanBtnTxt: { fontSize: 12.5, fontWeight: '800', color: T.brand },
-  tiles: { flexDirection: 'row', gap: 10, marginTop: 14 },
-  tile: { flex: 1, backgroundColor: '#fff', borderRadius: 16, paddingVertical: 12, paddingHorizontal: 12, gap: 2 },
-  tileN: { fontSize: 26, fontWeight: '800', letterSpacing: -0.5, marginTop: 2 },
-  tileL: { fontSize: 12, color: T.sub, fontWeight: '600' },
-  link: { color: T.brand, fontSize: 13, fontWeight: '700' },
-  cardTitle: { fontSize: 18, fontWeight: '800', color: T.ink },
-  cardTxt: { fontSize: 14.5, color: T.sub, lineHeight: 21 },
-  hint: { textAlign: 'center', color: T.faint, marginTop: 22, fontSize: 13.5, lineHeight: 19 },
+  page: { paddingHorizontal: 16, paddingBottom: 120, paddingTop: 6 },
+  titleRight: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingBottom: 6 },
+  conn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 11, height: 32, borderRadius: 16, backgroundColor: '#fff' },
+  connDot: { width: 8, height: 8, borderRadius: 4 },
+  connTxt: { fontSize: 13, fontWeight: '600', color: T.text },
+  scan: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
+  scanIcon: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
+  scanTitle: { fontSize: 16, fontWeight: '600', color: T.ink, letterSpacing: -0.2 },
+  scanLine: { fontSize: 13.5, color: T.sub, marginTop: 1, lineHeight: 18 },
+  scanPc: { fontSize: 12.5, color: T.faint, marginTop: 2 },
+  tiles: { flexDirection: 'row', gap: 10, marginTop: 10 },
+  tile: { flex: 1, backgroundColor: '#fff', borderRadius: T.radius, paddingVertical: 11, paddingHorizontal: 14 },
+  tileN: { fontSize: 26, fontWeight: '700', letterSpacing: -0.4 },
+  tileL: { fontSize: 13, color: T.sub, marginTop: 1 },
+  note: { padding: 18, gap: 10, marginBottom: 12 },
+  noteTitle: { fontSize: 18, fontWeight: '700', color: T.ink },
+  noteTxt: { fontSize: 15, color: T.sub, lineHeight: 21 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+  classCard: { backgroundColor: '#fff', borderRadius: 16, overflow: 'hidden' },
+  banner: { height: 96, paddingHorizontal: 16, paddingBottom: 12, justifyContent: 'flex-end', overflow: 'hidden' },
+  bannerGlow: { position: 'absolute', right: -44, top: -56, width: 170, height: 170, borderRadius: 85, backgroundColor: '#ffffff22' },
+  bannerTitle: { color: '#fff', fontSize: 21, fontWeight: '700', letterSpacing: -0.3, lineHeight: 25 },
+  classBody: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6, minHeight: 66, gap: 7, justifyContent: 'center' },
+  nextRow: { gap: 1 },
+  nextDue: { fontSize: 12.5, color: T.sub },
+  nextTitle: { fontSize: 15, color: T.ink, fontWeight: '500', letterSpacing: -0.2 },
+  nextNone: { fontSize: 14.5, color: T.faint },
+  classFoot: { flexDirection: 'row', gap: 14, paddingHorizontal: 16, paddingVertical: 11, borderTopWidth: hair, borderTopColor: T.line },
+  footTxt: { fontSize: 13, color: T.sub },
 });

@@ -4,17 +4,19 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Updates from 'expo-updates';
 import { AppCtx } from './src/ctx';
-import { T, WIDE, classPair, hair } from './src/theme';
+import { SIDEBAR, T, WIDE, classPair, hair } from './src/theme';
 import { useEngine } from './src/engine';
 import { Icon, LinearGradient, isOpen, niceCourse, workState } from './src/ui';
-import { ConnChip, HomeScreen } from './src/screens/Home';
-import { ClassScreen, ClassesScreen, FindScreen, TodoScreen, useClasses } from './src/screens/Lists';
+import { ClassesScreen, ConnChip } from './src/screens/Home';
+import { ClassScreen } from './src/screens/Class';
+import { CalendarScreen, FindScreen, TodoScreen, useClasses } from './src/screens/Lists';
 import { AttachPicker, ItemScreen, Preview } from './src/screens/Item';
 import { ConnectionScreen, MoreScreen, Notice, UpdateStrip, WhatsNew } from './src/screens/More';
 import { AddModal } from './src/extra';
 import { importZipFile } from './src/ziplib';
 
-const TABS = [['home', 'Home', 'home'], ['todo', 'To-do', 'checkbox'], ['classes', 'Classes', 'school'], ['find', 'Find', 'search'], ['more', 'More', 'ellipsis-horizontal-circle']];
+// The same places Google Classroom has — your classes, the to-do list, the calendar — plus this app's settings.
+const TABS = [['classes', 'Classes', 'school'], ['todo', 'To-do', 'checkbox'], ['calendar', 'Calendar', 'calendar'], ['more', 'Settings', 'settings']];
 
 /**
  * Over-the-air updates: newer app code is fetched when the app opens AND every time it comes back to the front
@@ -45,7 +47,7 @@ function useOta() {
   return useMemo(() => ({ ...st, check: () => check(true), apply: () => Updates.reloadAsync().catch(() => {}) }), [st, check]);
 }
 
-function Sidebar({ active, missing }) {
+function Sidebar({ active, missing, openClassName }) {
   const e = useContext(AppCtx);
   const classes = useClasses(e.items);
   return (
@@ -54,20 +56,20 @@ function Sidebar({ active, missing }) {
         <LinearGradient colors={['#3D8BFF', '#173FB8']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.mark}><Icon n="checkmark-done" s={20} c="#fff" /></LinearGradient>
         <Text style={s.brandTxt}>Classroom Feed</Text>
       </View>
-      {TABS.map(([k, label, icon]) => {
+      {[...TABS.slice(0, 3), ['find', 'Search', 'search'], TABS[3]].map(([k, label, icon]) => {
         const on = active === k;
         return (
-          <Pressable key={k} onPress={() => e.goTab(k)} style={({ pressed }) => [s.sideItem, on && s.sideOn, pressed && !on && { backgroundColor: T.soft }]}>
-            <Icon n={on ? icon : icon + '-outline'} s={21} c={on ? T.brand : T.sub} />
-            <Text style={[s.sideTxt, on && { color: T.brand, fontWeight: '800' }]}>{label}</Text>
+          <Pressable key={k} onPress={() => (k === 'find' ? e.openFind() : e.goTab(k))} style={({ pressed }) => [s.sideItem, on && s.sideOn, pressed && !on && { backgroundColor: T.soft }]}>
+            <Icon n={on || k === 'find' ? icon : icon + '-outline'} s={21} c={on ? T.brand : T.sub} />
+            <Text style={[s.sideTxt, on && { color: T.brand, fontWeight: '600' }]}>{label}</Text>
             {k === 'todo' && missing > 0 && <View style={s.badge}><Text style={s.badgeTxt}>{missing > 99 ? '99+' : missing}</Text></View>}
           </Pressable>
         );
       })}
-      <Text style={s.sideHead}>Classes</Text>
+      <Text style={s.sideHead}>Enrolled</Text>
       <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
         {classes.map((c) => (
-          <Pressable key={c.name} onPress={() => { e.goTab('classes'); e.openClass(c.name); }} style={({ pressed }) => [s.sideClass, pressed && { backgroundColor: T.soft }]}>
+          <Pressable key={c.name} onPress={() => { e.goTab('classes'); e.openClass(c.name); }} style={({ pressed }) => [s.sideClass, openClassName === c.name && s.sideOn, pressed && { backgroundColor: T.soft }]}>
             <View style={[s.sideDot, { backgroundColor: classPair(c.name)[0] }]} />
             <Text style={s.sideClassTxt} numberOfLines={1}>{c.name}</Text>
             {c.todo > 0 && <Text style={[s.sideCount, c.late > 0 && { color: T.red }]}>{c.todo}</Text>}
@@ -87,11 +89,11 @@ function TabBar({ tab, missing, bottom }) {
         const on = tab === k;
         return (
           <Pressable key={k} style={s.navItem} onPress={() => e.goTab(k)}>
-            <View style={[s.navPill, on && { backgroundColor: T.brandSoft }]}>
-              <Icon n={on ? icon : icon + '-outline'} s={22} c={on ? T.brand : T.sub} />
+            <View style={s.navPill}>
+              <Icon n={on ? icon : icon + '-outline'} s={25} c={on ? T.brand : T.faint} />
               {k === 'todo' && missing > 0 && <View style={s.navBadge}><Text style={s.badgeTxt}>{missing > 9 ? '9+' : missing}</Text></View>}
             </View>
-            <Text style={[s.navTxt, on && { color: T.brand, fontWeight: '800' }]}>{label}</Text>
+            <Text style={[s.navTxt, on && { color: T.brand }]}>{label}</Text>
           </Pressable>
         );
       })}
@@ -103,7 +105,7 @@ function Main() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const wide = width >= WIDE;
-  const [tab, setTab] = useState('home');
+  const [tab, setTab] = useState('classes');
   const [stack, setStack] = useState([]);
   const [todoSeg, setTodoSeg] = useState('todo');
   const [preview, setPreview] = useState(null);
@@ -121,6 +123,7 @@ function Main() {
     ...engine, ota, wide, tab, todoSeg, setTodoSeg, goTab, pop, openItem,
     openClass: (name) => setStack((x) => [...x, { t: 'class', name }]),
     openConnection: () => setStack((x) => (x.some((p) => p.t === 'conn') ? x : [...x, { t: 'conn' }])),
+    openFind: () => setStack((x) => (x.some((p) => p.t === 'find') ? x : [...x, { t: 'find' }])),
     openPreview: (file, list) => setPreview({ file, list: list && list.length ? list : [file] }),
     openAdd: () => setAdding(true),
   }), [engine, ota, wide, tab, todoSeg, goTab, pop, openItem]);
@@ -149,14 +152,15 @@ function Main() {
   const screen = top && top.t === 'class' ? <ClassScreen key={top.name} name={top.name} />
     : top && top.t === 'item' ? <ItemScreen key={top.id} id={top.id} />
       : top && top.t === 'conn' ? <ConnectionScreen />
-        : tab === 'home' ? <HomeScreen /> : tab === 'todo' ? <TodoScreen /> : tab === 'classes' ? <ClassesScreen /> : tab === 'find' ? <FindScreen /> : <MoreScreen />;
+        : top && top.t === 'find' ? <FindScreen />
+          : tab === 'todo' ? <TodoScreen /> : tab === 'calendar' ? <CalendarScreen /> : tab === 'more' ? <MoreScreen /> : <ClassesScreen />;
 
   return (
     <AppCtx.Provider value={ctx}>
       <View style={{ flex: 1, backgroundColor: T.bg, paddingTop: insets.top }}>
         <UpdateStrip />
         <View style={{ flex: 1, flexDirection: wide ? 'row' : 'column' }}>
-          {wide && <Sidebar active={top ? (top.t === 'class' ? 'classes' : '') : tab} missing={missing} />}
+          {wide && <Sidebar active={top ? (top.t === 'class' ? 'classes' : top.t === 'find' ? 'find' : '') : tab} openClassName={top && top.t === 'class' ? top.name : ''} missing={missing} />}
           <View style={{ flex: 1 }}>{screen}</View>
           {!wide && !top && <TabBar tab={tab} missing={missing} bottom={insets.bottom} />}
         </View>
@@ -197,26 +201,26 @@ export default function App() {
 }
 
 const s = StyleSheet.create({
-  side: { width: 264, backgroundColor: '#fff', borderRightWidth: hair, borderRightColor: T.line, paddingHorizontal: 12, paddingTop: 14 },
+  side: { width: SIDEBAR, backgroundColor: '#F9F9FB', borderRightWidth: hair, borderRightColor: T.line, paddingHorizontal: 12, paddingTop: 14 },
   brand: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 8, paddingBottom: 16 },
   mark: { width: 36, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
-  brandTxt: { fontSize: 18, fontWeight: '800', color: T.ink, letterSpacing: -0.3 },
-  sideItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, height: 46, borderRadius: 13, marginBottom: 2 },
+  brandTxt: { fontSize: 20, fontWeight: '700', color: T.ink, letterSpacing: -0.3 },
+  sideItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, height: 44, borderRadius: 10, marginBottom: 2 },
   sideOn: { backgroundColor: T.brandSoft },
-  sideTxt: { flex: 1, fontSize: 15.5, color: T.text, fontWeight: '600' },
-  sideHead: { fontSize: 12, fontWeight: '800', color: T.faint, textTransform: 'uppercase', letterSpacing: 0.9, marginTop: 18, marginBottom: 6, marginLeft: 12 },
-  sideClass: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, height: 40, borderRadius: 11 },
+  sideTxt: { flex: 1, fontSize: 17, color: T.text, letterSpacing: -0.3 },
+  sideHead: { fontSize: 13, color: T.sub, textTransform: 'uppercase', letterSpacing: 0.2, marginTop: 20, marginBottom: 6, marginLeft: 12 },
+  sideClass: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, height: 40, borderRadius: 10 },
   sideDot: { width: 10, height: 10, borderRadius: 5 },
-  sideClassTxt: { flex: 1, fontSize: 14, color: T.text, fontWeight: '500' },
-  sideCount: { fontSize: 12.5, color: T.sub, fontWeight: '800' },
+  sideClassTxt: { flex: 1, fontSize: 15, color: T.text, letterSpacing: -0.2 },
+  sideCount: { fontSize: 13, color: T.sub, fontWeight: '600' },
   sideFoot: { paddingVertical: 14, alignItems: 'flex-start', paddingHorizontal: 6 },
-  badge: { minWidth: 22, height: 22, borderRadius: 11, backgroundColor: T.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
-  badgeTxt: { color: '#fff', fontSize: 11, fontWeight: '800' },
-  nav: { flexDirection: 'row', backgroundColor: '#fff', borderTopWidth: hair, borderTopColor: T.line, paddingTop: 7 },
+  badge: { minWidth: 22, height: 22, borderRadius: 11, backgroundColor: T.redFill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  badgeTxt: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  nav: { flexDirection: 'row', backgroundColor: '#F9F9F9F2', borderTopWidth: hair, borderTopColor: T.line, paddingTop: 6 },
   navItem: { flex: 1, alignItems: 'center', gap: 2 },
-  navPill: { paddingHorizontal: 18, paddingVertical: 4, borderRadius: 16 },
-  navBadge: { position: 'absolute', top: -3, right: 6, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: T.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
-  navTxt: { fontSize: 11.5, color: T.sub, fontWeight: '600' },
+  navPill: { paddingHorizontal: 18, paddingVertical: 1 },
+  navBadge: { position: 'absolute', top: -4, right: 6, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: T.redFill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  navTxt: { fontSize: 10.5, color: T.faint, fontWeight: '500' },
   crash: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 30, backgroundColor: T.bg },
   crashTitle: { fontSize: 19, fontWeight: '800', color: T.ink, textAlign: 'center' },
   crashTxt: { fontSize: 13, color: T.sub, textAlign: 'center', marginTop: 10 },
