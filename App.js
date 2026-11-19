@@ -1,382 +1,225 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Linking, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { Component, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as Notifications from 'expo-notifications';
-import * as DocumentPicker from 'expo-document-picker';
 import * as Updates from 'expo-updates';
-import { C, DEFAULTS, load, makeApi, save } from './src/lib';
-import { fileSize, openFile, saveLocal, removeLocal, resolveLocal, fileExists, downloadFile, saveBase64 } from './src/files';
-import { exportLibraryZip, importZipFile } from './src/ziplib';
-import { cancelReminders, scheduleReminders } from './src/remind';
 import { AppCtx } from './src/ctx';
-import { cloudLibrary, cloudFileBase64, ckWriteTurnins, ckSignInUrl } from './src/cloud';
-import { WebView } from 'react-native-webview';
-import { Icon, isWork, niceCourse } from './src/ui';
-import { AttachPicker, ClassScreen, ClassesScreen, ItemScreen, NetworkScreen, Notice, Preview, SettingsScreen, TodoScreen, WhatsNew } from './src/screens';
-import { AddModal, SearchScreen } from './src/extra';
+import { T, WIDE, classPair, hair } from './src/theme';
+import { useEngine } from './src/engine';
+import { Icon, LinearGradient, isOpen, niceCourse, workState } from './src/ui';
+import { ConnChip, HomeScreen } from './src/screens/Home';
+import { ClassScreen, ClassesScreen, FindScreen, TodoScreen, useClasses } from './src/screens/Lists';
+import { AttachPicker, ItemScreen, Preview } from './src/screens/Item';
+import { ConnectionScreen, MoreScreen, Notice, UpdateStrip, WhatsNew } from './src/screens/More';
+import { AddModal } from './src/extra';
+import { importZipFile } from './src/ziplib';
 
-// One-time Apple sign-in capture, so turn-ins can be written to iCloud at school (the same approach the remote app uses).
-const CK_CAPTURE_JS = `(function(){function grab(h){var m=(h||'').match(/[?&#]ckWebAuthToken=([^&#]+)/);if(m){window.ReactNativeWebView.postMessage(JSON.stringify({t:'cwt',v:decodeURIComponent(m[1])}));return true;}return false;}grab(location.href);window.addEventListener('message',function(ev){try{var d=typeof ev.data==='string'?JSON.parse(ev.data):ev.data;if(d&&d.ckWebAuthToken){window.ReactNativeWebView.postMessage(JSON.stringify({t:'cwt',v:d.ckWebAuthToken}));}}catch(e){}});}()); true;`;
-const ckTokenFromUrl = (u) => { const m = (u || '').match(/[?&#]ckWebAuthToken=([^&#]+)/); return m ? decodeURIComponent(m[1]) : null; };
+const TABS = [['home', 'Home', 'home'], ['todo', 'To-do', 'checkbox'], ['classes', 'Classes', 'school'], ['find', 'Find', 'search'], ['more', 'More', 'ellipsis-horizontal-circle']];
 
-const NAV = [['classes', 'Classes', 'home'], ['todo', 'To-do', 'checkbox'], ['find', 'Find', 'search'], ['settings', 'Settings', 'settings']];
+/**
+ * Over-the-air updates: newer app code is fetched when the app opens AND every time it comes back to the front
+ * (iOS keeps apps alive for days, so a launch-only check would almost never run). Right after opening it switches
+ * straight to the new version; later on it shows a "tap to restart" strip instead of interrupting.
+ */
+function useOta() {
+  const [st, setSt] = useState({ checking: false, ready: false, note: '', id: (Updates && Updates.updateId) || '' });
+  const last = useRef(0), front = useRef(Date.now());
+  const check = useCallback(async (manual) => {
+    if (__DEV__ || Platform.OS === 'web' || !Updates.isEnabled) { if (manual) setSt((x) => ({ ...x, note: 'Updates only apply to the installed app.' })); return; }
+    if (!manual && Date.now() - last.current < 60000) return;
+    last.current = Date.now(); setSt((x) => ({ ...x, checking: true, note: '' }));
+    try {
+      const r = await Updates.checkForUpdateAsync();
+      if (r.isAvailable) {
+        await Updates.fetchUpdateAsync();
+        if (manual || Date.now() - front.current < 8000) { await Updates.reloadAsync(); return; }
+        setSt((x) => ({ ...x, checking: false, ready: true }));
+      } else setSt((x) => ({ ...x, checking: false, note: manual ? 'You have the newest version.' : '' }));
+    } catch { setSt((x) => ({ ...x, checking: false, note: manual ? 'The update server can’t be reached on this Wi-Fi. It updates by itself on normal internet.' : '' })); }
+  }, []);
+  useEffect(() => {
+    check(false);
+    const sub = AppState.addEventListener('change', (a) => { if (a === 'active') { front.current = Date.now(); check(false); } });
+    return () => sub.remove();
+  }, [check]);
+  return useMemo(() => ({ ...st, check: () => check(true), apply: () => Updates.reloadAsync().catch(() => {}) }), [st, check]);
+}
+
+function Sidebar({ active, missing }) {
+  const e = useContext(AppCtx);
+  const classes = useClasses(e.items);
+  return (
+    <View style={s.side}>
+      <View style={s.brand}>
+        <LinearGradient colors={['#3D8BFF', '#173FB8']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.mark}><Icon n="checkmark-done" s={20} c="#fff" /></LinearGradient>
+        <Text style={s.brandTxt}>Classroom Feed</Text>
+      </View>
+      {TABS.map(([k, label, icon]) => {
+        const on = active === k;
+        return (
+          <Pressable key={k} onPress={() => e.goTab(k)} style={({ pressed }) => [s.sideItem, on && s.sideOn, pressed && !on && { backgroundColor: T.soft }]}>
+            <Icon n={on ? icon : icon + '-outline'} s={21} c={on ? T.brand : T.sub} />
+            <Text style={[s.sideTxt, on && { color: T.brand, fontWeight: '800' }]}>{label}</Text>
+            {k === 'todo' && missing > 0 && <View style={s.badge}><Text style={s.badgeTxt}>{missing > 99 ? '99+' : missing}</Text></View>}
+          </Pressable>
+        );
+      })}
+      <Text style={s.sideHead}>Classes</Text>
+      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+        {classes.map((c) => (
+          <Pressable key={c.name} onPress={() => { e.goTab('classes'); e.openClass(c.name); }} style={({ pressed }) => [s.sideClass, pressed && { backgroundColor: T.soft }]}>
+            <View style={[s.sideDot, { backgroundColor: classPair(c.name)[0] }]} />
+            <Text style={s.sideClassTxt} numberOfLines={1}>{c.name}</Text>
+            {c.todo > 0 && <Text style={[s.sideCount, c.late > 0 && { color: T.red }]}>{c.todo}</Text>}
+          </Pressable>
+        ))}
+      </ScrollView>
+      <View style={s.sideFoot}><ConnChip /></View>
+    </View>
+  );
+}
+
+function TabBar({ tab, missing, bottom }) {
+  const e = useContext(AppCtx);
+  return (
+    <View style={[s.nav, { paddingBottom: Math.max(bottom, 8) }]}>
+      {TABS.map(([k, label, icon]) => {
+        const on = tab === k;
+        return (
+          <Pressable key={k} style={s.navItem} onPress={() => e.goTab(k)}>
+            <View style={[s.navPill, on && { backgroundColor: T.brandSoft }]}>
+              <Icon n={on ? icon : icon + '-outline'} s={22} c={on ? T.brand : T.sub} />
+              {k === 'todo' && missing > 0 && <View style={s.navBadge}><Text style={s.badgeTxt}>{missing > 9 ? '9+' : missing}</Text></View>}
+            </View>
+            <Text style={[s.navTxt, on && { color: T.brand, fontWeight: '800' }]}>{label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
 
 function Main() {
   const insets = useSafeAreaInsets();
-  const [tab, setTab] = useState('classes');
+  const { width } = useWindowDimensions();
+  const wide = width >= WIDE;
+  const [tab, setTab] = useState('home');
   const [stack, setStack] = useState([]);
-  const [cfg, setCfgState] = useState(DEFAULTS);
-  const [items, setItems] = useState([]);
-  const [saved, setSaved] = useState({});
-  const [status, setStatus] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
+  const [todoSeg, setTodoSeg] = useState('todo');
   const [preview, setPreview] = useState(null);
-  const [incoming, setIncoming] = useState(null);
-  const [notice, setNotice] = useState('');
   const [adding, setAdding] = useState(false);
-  const [fresh, setFresh] = useState([]);
-  const [checkInfo, setCheckInfo] = useState(null);
-  const [ck, setCk] = useState(null); // read-only iCloud details, learned while the bot is reachable
-  const [ckAuthUrl, setCkAuthUrl] = useState(null); // Apple sign-in WebView, shown when enabling iCloud submit
-  const ckRef = useRef(null); ckRef.current = ck;
-  const [ready, setReady] = useState(false);
-  const api = useMemo(() => makeApi(cfg), [cfg]);
+  const [incoming, setIncoming] = useState(null);
 
-  const itemsRef = useRef([]); itemsRef.current = items;
-  const queueRef = useRef([]);
-  const lastSyncRef = useRef(0);
-  const syncing = useRef(false);
-  const noticeTimer = useRef(null);
-
-  const notify = useCallback((msg) => {
-    setNotice(msg); clearTimeout(noticeTimer.current);
-    noticeTimer.current = setTimeout(() => setNotice(''), 3200);
-  }, []);
-  const push = useCallback((screen) => setStack((x) => [...x, screen]), []);
+  const openItem = useCallback((id) => setStack((x) => [...x.filter((p) => !(p.t === 'item' && p.id === id)), { t: 'item', id }]), []);
+  const engine = useEngine({ onOpenItem: (id) => setStack([{ t: 'item', id }]) }); // tapping a notification opens that post
+  const eng = useRef(engine); eng.current = engine;
+  const ota = useOta();
+  const goTab = useCallback((k, seg) => { setStack([]); setTab(k); if (seg) setTodoSeg(seg); }, []);
   const pop = useCallback(() => setStack((x) => x.slice(0, -1)), []);
 
-  useEffect(() => { (async () => {
-    setCfgState(await load('cfg2', DEFAULTS)); setItems((await load('items', [])).map((i) => ({ ...i, course: niceCourse(i.course) }))); setSaved(await load('saved', {}));
-    setCk(await load('ck', null));
-    queueRef.current = await load('queue', []); lastSyncRef.current = await load('lastSync', 0);
-    setReady(true);
-  })(); }, []);
+  const ctx = useMemo(() => ({
+    ...engine, ota, wide, tab, todoSeg, setTodoSeg, goTab, pop, openItem,
+    openClass: (name) => setStack((x) => [...x, { t: 'class', name }]),
+    openConnection: () => setStack((x) => (x.some((p) => p.t === 'conn') ? x : [...x, { t: 'conn' }])),
+    openPreview: (file, list) => setPreview({ file, list: list && list.length ? list : [file] }),
+    openAdd: () => setAdding(true),
+  }), [engine, ota, wide, tab, todoSeg, goTab, pop, openItem]);
 
-  // Over-the-air update: fetch a newer version of the app's code on launch and switch to it right away.
-  useEffect(() => { (async () => {
-    if (__DEV__ || Platform.OS === 'web' || !Updates.isEnabled) return;
-    try { const r = await Updates.checkForUpdateAsync(); if (r.isAvailable) { await Updates.fetchUpdateAsync(); await Updates.reloadAsync(); } } catch { /* no connection: keep the installed version */ }
-  })(); }, []);
-
-  const persistQueue = () => save('queue', queueRef.current);
-  const setCfg = (c) => { setCfgState(c); save('cfg2', c); };
-
-  // Merging never throws away what's on the device: local files and unsent changes survive a sync.
-  const merge = useCallback((incomingItems, fromServer) => setItems((cur) => {
-    const map = new Map(cur.map((i) => [i.id, i]));
-    const pendingState = new Set(queueRef.current.filter((q) => q.type === 'state').map((q) => q.id));
-    incomingItems.forEach((raw) => {
-      const i = { ...raw, course: niceCourse(raw.course) };
-      const old = map.get(i.id);
-      if (!old) { map.set(i.id, { ...i, submitted: !!i.submitted }); return; }
-      const incLocal = new Set((i.files || []).filter((f) => f.local).map((f) => f.name)); // a freshly imported copy replaces an older (possibly mis-named) one
-      const keepLocal = (old.files || []).filter((f) => (f.local || f.pending) && !incLocal.has(f.name));
-      const names = new Set(keepLocal.map((f) => f.name));
-      const files = [...keepLocal, ...(i.files || []).filter((f) => !names.has(f.name))];
-      map.set(i.id, { ...old, ...i, files, dueAt: i.dueAt || old.dueAt || 0,
-        submitted: pendingState.has(i.id) ? old.submitted : (fromServer ? !!i.submitted : old.submitted || !!i.submitted) });
-    });
-    const next = [...map.values()].sort((a, b) => (b.posted_at || b.created_at) - (a.posted_at || a.created_at));
-    save('items', next); return next;
-  }), []);
-
-  const onSaved = useCallback((id, path) => setSaved((x) => { const n = { ...x, [id]: path }; save('saved', n); return n; }), []);
-
-  /** Sends changes made while offline (done marks, uploads) as soon as a connection works. */
-  const flushQueue = useCallback(async () => {
-    // A failed send never blocks pulling new work: a network error keeps the change for later, a rejected one (4xx) is dropped.
-    while (queueRef.current.length) {
-      const q = queueRef.current[0];
-      try {
-        if (q.type === 'state') await api.setSubmitted(q.id, q.submitted);
-        else if (q.type === 'turnin') await api.turnin(q.id, q.cancel);
-        else if (q.type === 'upload') {
-          const r = await api.upload(q.itemId, q.name, resolveLocal(q.uri), q.mime);
-          setItems((cur) => { const next = cur.map((i) => {
-            if (i.id !== q.itemId) return i;
-            const files = i.files || [];
-            // The server already had this exact file (a retry, or another device uploaded it): keep one copy.
-            if (files.some((f) => f.id === r.id)) return { ...i, files: files.filter((f) => f.id !== q.fileId) };
-            return { ...i, files: files.map((f) => (f.id === q.fileId ? { ...f, id: r.id, pending: false } : f)) };
-          }); save('items', next); return next; });
-        }
-      } catch (e) {
-        if (e.status === 401) throw e;
-        if (!(e.status >= 400 && e.status < 500)) break; // offline or server hiccup: try again next sync
-      }
-      queueRef.current.shift(); persistQueue();
-    }
-  }, [api]);
-
-  // Every attachment is copied onto the device as soon as it is seen, so it opens with no connection.
-  const savedRef = useRef({}); savedRef.current = saved;
-  const autoSaving = useRef(false);
-  const autoSave = useCallback(async (viaCloud) => {
-    if (Platform.OS === 'web' || autoSaving.current) return;
-    autoSaving.current = true;
-    try {
-      for (const it of itemsRef.current) {
-        for (const f of it.files || []) {
-          if (f.pending || f.local || String(f.id).startsWith('local-')) continue;
-          const cur = savedRef.current[f.id];
-          if (cur && await fileExists(cur)) continue;
-          try {
-            const p = viaCloud ? await saveBase64(await cloudFileBase64(ckRef.current, f), f.name, f.id) : await downloadFile(api.fileUrl(f.id), f.name, f.id);
-            onSaved(f.id, p);
-          } catch (e) { if (!viaCloud || e.status === 401) return; }
-        }
-      }
-    } finally { autoSaving.current = false; }
-  }, [api, onSaved]);
-
-  const applyIncoming = useCallback((got) => {
-    const known = new Set(itemsRef.current.map((i) => i.id));
-    const brandNew = got.filter((i) => !known.has(i.id) && i.kind !== 'email');
-    if (known.size && brandNew.length) setFresh(brandNew);
-    merge(got, true);
-    got.forEach((it) => { if (it.dueAt && !it.submitted) scheduleReminders(it); else if (it.submitted) cancelReminders(it); });
-  }, [merge]);
-
-  const sync = useCallback(async () => {
-    if (!cfg.token || syncing.current) return;
-    syncing.current = true; setRefreshing(true);
-    try {
-      await flushQueue();
-      const r = await api.items(lastSyncRef.current);
-      const got = r.items || [];
-      applyIncoming(got);
-      try { const st = await api.status(); setCheckInfo(st); if (st.ck) { setCk(st.ck); save('ck', st.ck); } } catch { /* the banner just keeps its last values */ }
-      lastSyncRef.current = got.reduce((m, i) => Math.max(m, i.updated_at || 0), lastSyncRef.current); save('lastSync', lastSyncRef.current);
-      setStatus(`Synced ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${got.length ? ` · ${got.length} updated` : ''}`);
-      setTimeout(() => autoSave(false), 600);
-    } catch (e) {
-      if (e.status === 401) { setCfg({ ...cfg, token: '' }); setStatus('Please sign in again.'); }
-      else if (ckRef.current && await (async () => {
-        // The bot can't be reached (restricted Wi-Fi): read the library from iCloud instead.
-        try { const lib = await cloudLibrary(ckRef.current); applyIncoming(lib.items); setStatus(`Synced from iCloud ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · this network blocks the bot`); setTimeout(() => autoSave(true), 600); return true; } catch { return false; }
-      })()) { /* status already set */ }
-      else setStatus(queueRef.current.length ? `Offline · ${queueRef.current.length} change${queueRef.current.length > 1 ? 's' : ''} will send when you reconnect` : 'Offline · showing what’s saved on this device');
-    }
-    syncing.current = false; setRefreshing(false);
-  }, [api, cfg, flushQueue, merge, applyIncoming, autoSave]);
-
-  // Sync on launch, when the app comes to the front, and every minute while open (reconnects are picked up automatically).
-  useEffect(() => { if (ready && cfg.token) sync(); }, [ready, cfg.token]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    const t = setInterval(() => sync(), 60000);
-    const sub = AppState.addEventListener('change', (st) => { if (st === 'active') sync(); });
-    return () => { clearInterval(t); sub.remove(); };
-  }, [sync]);
-
-  const toggleSubmitted = useCallback((item) => {
-    const updated = { ...item, submitted: !item.submitted };
-    setItems((cur) => { const next = cur.map((i) => (i.id === item.id ? updated : i)); save('items', next); return next; });
-    if (updated.submitted) cancelReminders(updated); else scheduleReminders(updated);
-    if (item.mine) return; // your own assignments live on this device only
-    queueRef.current = [...queueRef.current.filter((q) => !(q.type === 'state' && q.id === item.id)), { type: 'state', id: item.id, submitted: updated.submitted }];
-    persistQueue(); sync();
-  }, [sync]);
-
-  /** Notes, steps, stars: saved on the device and never overwritten by a sync. */
-  const updateItem = useCallback((id, patch) => setItems((cur) => { const next = cur.map((i) => (i.id === id ? { ...i, ...patch } : i)); save('items', next); return next; }), []);
-  const deleteItem = useCallback((id) => setItems((cur) => { const next = cur.filter((i) => i.id !== id); save('items', next); return next; }), []);
-  const addItem = useCallback((d) => {
-    const now = Date.now();
-    const it = { id: 'mine-' + now, kind: d.kind === 'material' ? 'material' : 'assignment', course: niceCourse(d.course), title: d.title, body: d.body || '', due: '', dueAt: d.dueAt || 0, posted_at: now, created_at: now, updated_at: now, mine: true, submitted: false, files: [], url: '' };
-    setItems((cur) => { const next = [it, ...cur]; save('items', next); return next; });
-    if (it.dueAt) scheduleReminders(it);
-    setAdding(false); setStack([{ t: 'item', id: it.id }]); notify(`Added “${it.title}”`);
-  }, [notify]);
-
-  /** Adds a finished file to an assignment (shown at once, uploaded when online). The same file is never added twice. */
-  const uploadFor = useCallback(async (item, asset) => {
-    const name = asset.name || 'work';
-    const local = await saveLocal(asset.uri, name);
-    const size = asset.size || (await fileSize(local));
-    const cur = itemsRef.current.find((i) => i.id === item.id) || item;
-    const dupFile = (cur.files || []).some((f) => f.origin === 'upload' && f.name === name && (!f.size || !size || f.size === size));
-    const dupQueued = queueRef.current.some((q) => q.type === 'upload' && q.itemId === item.id && q.name === name);
-    if (dupFile || dupQueued) { await removeLocal(local); notify(`“${name}” is already uploaded for this assignment.`); return; }
-    const fileId = 'pending-' + Date.now();
-    const file = { id: fileId, name, size, local, origin: 'upload', pending: !cur.mine };
-    setItems((c) => { const next = c.map((i) => (i.id === item.id ? { ...i, files: [...(i.files || []), file] } : i)); save('items', next); return next; });
-    if (cur.mine) { notify(`Added “${name}”`); return; } // your own assignment: the file stays on this device
-    queueRef.current = [...queueRef.current, { type: 'upload', itemId: item.id, fileId, name, uri: local, mime: asset.mimeType }];
-    persistQueue(); notify(`Added “${name}”${cfg.token ? ' · uploading' : ''}`); sync();
-  }, [sync, notify, cfg.token]);
-
-  const pickAndUpload = useCallback(async (item) => {
-    try { const r = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true }); if (!r.canceled) await uploadFor(item, r.assets[0]); } catch {}
-  }, [uploadFor]);
-
-  /** Real Google Classroom turn-in: queued here, actually turned in by the PC checker when it can reach Classroom (open Wi-Fi). */
-  const turnIn = useCallback((item, cancel = false) => {
-    if (item.mine || !item.url) { notify('This item can’t be turned in on Classroom.'); return; }
-    updateItem(item.id, { turnin: cancel ? '' : 'queued', turnin_note: cancel ? '' : 'Waiting to turn in' });
-    queueRef.current = [...queueRef.current.filter((q) => q.type !== 'turnin' || q.id !== item.id), { type: 'turnin', id: item.id, cancel }];
-    persistQueue();
-    // If signed in for iCloud submit, also write the request to iCloud — that's the path that works on the school Wi-Fi.
-    const viaICloud = !!(ckRef.current && ckRef.current.webAuthToken);
-    if (viaICloud) {
-      const cur = itemsRef.current.filter((i) => i.turnin === 'queued' && i.id !== item.id).map((i) => i.id);
-      ckWriteTurnins(ckRef.current, cancel ? cur : [...cur, item.id]).catch(() => {});
-    }
-    notify(cancel ? 'Turn-in canceled' : viaICloud ? 'Turning in — sent over iCloud, works at school' : 'Will turn in on Classroom when you’re on open Wi-Fi');
-    sync();
-  }, [sync, notify, updateItem]);
-
-  /** One-time Apple sign-in so turn-ins can be sent over iCloud at school (where the bot can't be reached). */
-  const beginICloudSubmit = useCallback(async () => {
-    if (!ckRef.current || !ckRef.current.token) { notify('Open the app on home Wi-Fi once first so it has the iCloud key.'); return; }
-    try { const url = await ckSignInUrl(ckRef.current); if (url) setCkAuthUrl(url); else notify('iCloud submit is already set up.'); }
-    catch { notify('Couldn’t start the iCloud sign-in. Try again on open Wi-Fi.'); }
-  }, [notify]);
-  const completeICloudSubmit = useCallback((token) => {
-    setCkAuthUrl(null);
-    if (!token) return;
-    const next = { ...(ckRef.current || {}), webAuthToken: token };
-    setCk(next); save('ck', next);
-    notify('Signed in to iCloud — you can now submit at school.');
-  }, [notify]);
-
-  const handleZip = useCallback(async (uri) => {
-    const imported = await importZipFile(uri);
-    const known = new Set(itemsRef.current.map((i) => i.id));
-    const brandNew = imported.filter((i) => !known.has(i.id));
-    if (brandNew.length) setFresh(brandNew);
-    merge(imported, false);
-    imported.forEach((it) => scheduleReminders(it));
-    setStack([]); setTab('classes');
-    const nf = imported.reduce((n, i) => n + (i.files || []).length, 0);
-    notify(`Imported ${imported.length} item${imported.length === 1 ? '' : 's'}${nf ? ` · ${nf} file${nf === 1 ? '' : 's'} saved offline` : ''}.${imported.failed ? `
-(${imported.failed} file${imported.failed === 1 ? '' : 's'} could not be saved)` : ''}${imported.more ? `\nMore is waiting (about ${imported.more}): text the bot again.` : ''}`);
-    if (imported.more) { clearTimeout(noticeTimer.current); noticeTimer.current = setTimeout(() => setNotice(''), 9000); }
-  }, [merge, notify]);
-
-  // Files opened with Share → Classroom Feed: a Homework zip fills the library; anything else (e.g. from Quill) is your finished work.
+  // A file shared into the app from another app (your notes app, Files…): ask which assignment it is for.
+  // (A Homework zip from the older Messages route still opens too, quietly.)
   useEffect(() => {
     const handle = (u) => {
       if (!u || !/^file:/i.test(u)) return;
-      let name = u.split('/').pop().split('?')[0]; try { name = decodeURIComponent(name); } catch {}
-      if (/\.zip$/i.test(name)) handleZip(u).catch((e) => { notify('Could not read that zip: ' + String((e && e.message) || e).slice(0, 260)); clearTimeout(noticeTimer.current); noticeTimer.current = setTimeout(() => setNotice(''), 15000); });
-      else setIncoming({ uri: u, name });
+      let name = u.split('/').pop().split('?')[0];
+      try { name = decodeURIComponent(name); } catch { /* keep the raw name */ }
+      if (/\.zip$/i.test(name)) {
+        importZipFile(u).then((got) => { eng.current.applyIncoming(got, false); eng.current.notify(`Imported ${got.length} item${got.length === 1 ? '' : 's'}.`); })
+          .catch(() => eng.current.notify('Could not read that zip.'));
+      } else setIncoming({ uri: u, name });
     };
     Linking.getInitialURL().then(handle).catch(() => {});
-    const sub = Linking.addEventListener('url', (e) => handle(e.url));
+    const sub = Linking.addEventListener('url', (ev) => handle(ev.url));
     return () => sub.remove();
-  }, [handleZip, notify]);
-
-  const shareLibrary = useCallback(async () => {
-    try { await openFile(await exportLibraryZip(itemsRef.current)); } catch { notify('Sharing needs the installed app.'); }
-  }, [notify]);
-
-  const onAuth = useCallback(async (mode, name, password, invite) => {
-    const open = makeApi({ ...cfg, token: '' });
-    const r = mode === 'up' ? await open.register(name, password, invite) : await open.login(name, password);
-    setCfg({ ...cfg, token: r.token, name: r.name });
-  }, [cfg]);
-
-  useEffect(() => { (async () => {
-    if (!cfg.token || Platform.OS === 'web') return;
-    try { const p = await Notifications.requestPermissionsAsync(); if (!p.granted) return; const tok = await Notifications.getExpoPushTokenAsync(); await api.registerPush(tok.data); } catch {}
-  })(); }, [cfg.token, api]);
-
-  useEffect(() => {
-    const sub = Notifications.addNotificationReceivedListener((n) => { const d = n.request.content.data; if (d && d.item) merge([d.item], true); });
-    return () => sub.remove();
-  }, [merge]);
-
-  const goTab = (k) => { setStack([]); setTab(k); };
-  const ctx = useMemo(() => ({
-    items, cfg, api, saved, onSaved, status, refreshing, checkInfo, ck, refresh: sync, toggleSubmitted, turnIn, beginICloudSubmit, icloudSubmit: !!(ck && ck.webAuthToken), pickAndUpload, shareLibrary, onAuth,
-    onSignOut: () => setCfg({ ...cfg, token: '' }),
-    updateItem, deleteItem, openAdd: () => setAdding(true),
-    openPreview: (file, list) => setPreview({ file, list: list && list.length ? list : [file] }), openClass: (name) => push({ t: 'class', name }), openItem: (id) => push({ t: 'item', id }),
-    openNetwork: () => push({ t: 'network' }), pop,
-  }), [items, cfg, api, saved, onSaved, status, refreshing, checkInfo, ck, sync, toggleSubmitted, turnIn, beginICloudSubmit, pickAndUpload, shareLibrary, onAuth, push, pop, updateItem, deleteItem]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const top = stack[stack.length - 1];
-  const dueSoon = items.filter((i) => isWork(i) && !i.submitted && i.dueAt && i.dueAt < Date.now() + 2 * 86400000).length;
+  const missing = useMemo(() => engine.items.filter((i) => isOpen(i) && workState(i) === 'late').length, [engine.items]);
+  if (!engine.ready) return <View style={{ flex: 1, backgroundColor: T.bg }} />;
+
+  const screen = top && top.t === 'class' ? <ClassScreen key={top.name} name={top.name} />
+    : top && top.t === 'item' ? <ItemScreen key={top.id} id={top.id} />
+      : top && top.t === 'conn' ? <ConnectionScreen />
+        : tab === 'home' ? <HomeScreen /> : tab === 'todo' ? <TodoScreen /> : tab === 'classes' ? <ClassesScreen /> : tab === 'find' ? <FindScreen /> : <MoreScreen />;
 
   return (
     <AppCtx.Provider value={ctx}>
-      <View style={{ flex: 1, backgroundColor: C.bg, paddingTop: insets.top }}>
-        <View style={{ flex: 1 }}>
-          {top?.t === 'class' ? <ClassScreen key={top.name} name={top.name} />
-            : top?.t === 'item' ? <ItemScreen key={top.id} id={top.id} />
-            : top?.t === 'network' ? <NetworkScreen cfg={cfg} />
-            : tab === 'classes' ? <ClassesScreen />
-            : tab === 'todo' ? <TodoScreen />
-            : tab === 'find' ? <SearchScreen />
-            : <SettingsScreen />}
+      <View style={{ flex: 1, backgroundColor: T.bg, paddingTop: insets.top }}>
+        <UpdateStrip />
+        <View style={{ flex: 1, flexDirection: wide ? 'row' : 'column' }}>
+          {wide && <Sidebar active={top ? (top.t === 'class' ? 'classes' : '') : tab} missing={missing} />}
+          <View style={{ flex: 1 }}>{screen}</View>
+          {!wide && !top && <TabBar tab={tab} missing={missing} bottom={insets.bottom} />}
         </View>
-        {!top && (tab === 'classes' || tab === 'todo') && (
-          <Pressable onPress={() => setAdding(true)} style={[s.fab, { bottom: 76 + Math.max(insets.bottom, 8) }]}>
-            <Icon n="add" s={30} c="#fff" />
-          </Pressable>
+        <Notice text={engine.notice} bottom={(wide || top ? 26 : 92) + insets.bottom} />
+        {engine.fresh.length > 0 && (
+          <WhatsNew fresh={engine.fresh} onClose={() => engine.setFresh([])}
+            onOpen={(it) => { engine.setFresh([]); setTab('classes'); setStack([{ t: 'class', name: niceCourse(it.course) }, { t: 'item', id: it.id }]); }} />
         )}
-        {!top && (
-          <View style={[s.nav, { paddingBottom: Math.max(insets.bottom, 8) }]}>
-            {NAV.map(([k, label, icon]) => {
-              const on = tab === k;
-              return (
-                <Pressable key={k} style={s.navItem} onPress={() => goTab(k)}>
-                  <View style={[s.navPill, on && { backgroundColor: '#e8f0fe' }]}>
-                    <Icon n={on ? icon : icon + '-outline'} s={22} c={on ? C.blue : C.sub} />
-                    {k === 'todo' && dueSoon > 0 && <View style={s.badge}><Text style={s.badgeTxt}>{dueSoon > 9 ? '9+' : dueSoon}</Text></View>}
-                  </View>
-                  <Text style={[s.navTxt, on && { color: C.blue, fontWeight: '700' }]}>{label}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        )}
-        <Notice text={notice} />
-        {fresh.length > 0 && <WhatsNew fresh={fresh} onClose={() => setFresh([])} onOpen={(it) => { setFresh([]); setTab('classes'); setStack([{ t: 'class', name: niceCourse(it.course) }, { t: 'item', id: it.id }]); }} />}
         {preview && <Preview key={preview.file.id} file={preview.file} list={preview.list} onSwitch={(f) => setPreview({ ...preview, file: f })} onClose={() => setPreview(null)} />}
-        {adding && <AddModal classes={[...new Set(items.map((i) => i.course || 'Other'))].sort()} onSave={addItem} onClose={() => setAdding(false)} />}
-        {incoming && <AttachPicker incoming={incoming} items={items} onClose={() => setIncoming(null)}
-          onPick={(it) => { uploadFor(it, { uri: incoming.uri, name: incoming.name }); setIncoming(null); setStack([{ t: 'item', id: it.id }]); }} />}
-        {ckAuthUrl && (
-          <Modal visible animationType="slide" onRequestClose={() => completeICloudSubmit(null)}>
-            <View style={{ flex: 1, backgroundColor: '#fff', paddingTop: insets.top }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line }}>
-                <Text style={{ fontSize: 17, fontWeight: '700', color: C.text }}>Sign in to iCloud</Text>
-                <Pressable onPress={() => completeICloudSubmit(null)} hitSlop={10}><Text style={{ color: C.blue, fontWeight: '600', fontSize: 16 }}>Close</Text></Pressable>
-              </View>
-              <WebView source={{ uri: ckAuthUrl }} injectedJavaScript={CK_CAPTURE_JS}
-                onMessage={(e) => { try { const d = JSON.parse(e.nativeEvent.data); if (d.t === 'cwt' && d.v) completeICloudSubmit(d.v); } catch {} }}
-                onShouldStartLoadWithRequest={(req) => { const tk = ckTokenFromUrl(req.url); if (tk) { completeICloudSubmit(tk); return false; } return true; }}
-                onNavigationStateChange={(nav) => { const tk = ckTokenFromUrl(nav.url); if (tk) completeICloudSubmit(tk); }} />
-            </View>
-          </Modal>
-        )}
+        {adding && <AddModal classes={[...new Set(engine.items.map((i) => i.course || 'Other'))].sort()} onClose={() => setAdding(false)}
+          onSave={(d) => { const it = engine.addItem(d); setAdding(false); setStack([{ t: 'item', id: it.id }]); engine.notify(`Added “${it.title}”`); }} />}
+        {incoming && <AttachPicker incoming={incoming} items={engine.items} onClose={() => setIncoming(null)}
+          onPick={(it) => { engine.addWork(it, { uri: incoming.uri, name: incoming.name }); setIncoming(null); setStack([{ t: 'item', id: it.id }]); }} />}
       </View>
     </AppCtx.Provider>
   );
 }
 
+/** If a screen ever fails to draw, show what happened and a way out instead of a blank app. */
+class Boundary extends Component {
+  constructor(p) { super(p); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  render() {
+    if (!this.state.err) return this.props.children;
+    return (
+      <View style={s.crash}>
+        <Text style={s.crashTitle}>Something went wrong on this screen</Text>
+        <Text selectable style={s.crashTxt}>{String((this.state.err && this.state.err.message) || this.state.err).slice(0, 400)}</Text>
+        <Pressable onPress={() => this.setState({ err: null })} style={s.crashBtn}><Text style={s.crashBtnTxt}>Try again</Text></Pressable>
+        <Pressable onPress={() => Updates.reloadAsync().catch(() => this.setState({ err: null }))}><Text style={{ color: T.brand, fontWeight: '700', marginTop: 14 }}>Restart the app</Text></Pressable>
+      </View>
+    );
+  }
+}
+
 export default function App() {
-  return (<SafeAreaProvider><StatusBar style="dark" /><Main /></SafeAreaProvider>);
+  return (<SafeAreaProvider><StatusBar style="dark" /><Boundary><Main /></Boundary></SafeAreaProvider>);
 }
 
 const s = StyleSheet.create({
-  nav: { flexDirection: 'row', backgroundColor: '#fff', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.line, paddingTop: 6 },
+  side: { width: 264, backgroundColor: '#fff', borderRightWidth: hair, borderRightColor: T.line, paddingHorizontal: 12, paddingTop: 14 },
+  brand: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 8, paddingBottom: 16 },
+  mark: { width: 36, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  brandTxt: { fontSize: 18, fontWeight: '800', color: T.ink, letterSpacing: -0.3 },
+  sideItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, height: 46, borderRadius: 13, marginBottom: 2 },
+  sideOn: { backgroundColor: T.brandSoft },
+  sideTxt: { flex: 1, fontSize: 15.5, color: T.text, fontWeight: '600' },
+  sideHead: { fontSize: 12, fontWeight: '800', color: T.faint, textTransform: 'uppercase', letterSpacing: 0.9, marginTop: 18, marginBottom: 6, marginLeft: 12 },
+  sideClass: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, height: 40, borderRadius: 11 },
+  sideDot: { width: 10, height: 10, borderRadius: 5 },
+  sideClassTxt: { flex: 1, fontSize: 14, color: T.text, fontWeight: '500' },
+  sideCount: { fontSize: 12.5, color: T.sub, fontWeight: '800' },
+  sideFoot: { paddingVertical: 14, alignItems: 'flex-start', paddingHorizontal: 6 },
+  badge: { minWidth: 22, height: 22, borderRadius: 11, backgroundColor: T.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  badgeTxt: { color: '#fff', fontSize: 11, fontWeight: '800' },
+  nav: { flexDirection: 'row', backgroundColor: '#fff', borderTopWidth: hair, borderTopColor: T.line, paddingTop: 7 },
   navItem: { flex: 1, alignItems: 'center', gap: 2 },
-  navPill: { paddingHorizontal: 20, paddingVertical: 4, borderRadius: 16 },
-  navTxt: { fontSize: 12, color: C.sub },
-  badge: { position: 'absolute', top: -2, right: 8, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
-  fab: { position: 'absolute', right: 18, width: 58, height: 58, borderRadius: 29, backgroundColor: C.blue, alignItems: 'center', justifyContent: 'center', elevation: 6, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 3 } },
-  badgeTxt: { color: '#fff', fontSize: 10, fontWeight: '800' },
+  navPill: { paddingHorizontal: 18, paddingVertical: 4, borderRadius: 16 },
+  navBadge: { position: 'absolute', top: -3, right: 6, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: T.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  navTxt: { fontSize: 11.5, color: T.sub, fontWeight: '600' },
+  crash: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 30, backgroundColor: T.bg },
+  crashTitle: { fontSize: 19, fontWeight: '800', color: T.ink, textAlign: 'center' },
+  crashTxt: { fontSize: 13, color: T.sub, textAlign: 'center', marginTop: 10 },
+  crashBtn: { marginTop: 20, backgroundColor: T.brand, paddingHorizontal: 22, height: 46, borderRadius: 14, justifyContent: 'center' },
+  crashBtnTxt: { color: '#fff', fontWeight: '800', fontSize: 15 },
 });

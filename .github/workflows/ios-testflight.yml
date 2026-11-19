@@ -1,7 +1,11 @@
 # Builds the iOS app on a free GitHub macOS runner with `eas build --local`
 # (does NOT use the Expo plan's build quota) and sends it to TestFlight.
 # Run it from GitHub: Actions > "iOS build to TestFlight" > Run workflow.
-# Needs one repository secret: EXPO_TOKEN (expo.dev > Account settings > Access tokens).
+# Repository secrets:
+#   EXPO_TOKEN    expo.dev > Account settings > Access tokens
+#   CF_SEED       the app's private iCloud connection details (JSON). Written into src/seed.js for THIS build only, so an
+#                 installed app works at once - also on a Wi-Fi that only allows Apple - with nothing for the user to set up.
+#   ARTIFACT_KEY  locks the .ipa while it is stored between the two jobs (this repository is public).
 # Signing uses the certificates/profiles already stored on Expo (credentialsSource: remote).
 #
 # Two jobs on purpose: the Mac only builds (~10 min). The upload to Apple runs on a Linux runner,
@@ -27,6 +31,7 @@ jobs:
     env:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       EAS_SKIP_AUTO_FINGERPRINT: '1'
+      EAS_NO_VCS: '1'
     steps:
       - uses: actions/checkout@v4
 
@@ -50,15 +55,47 @@ jobs:
           if [ -z "$EXPO_TOKEN" ]; then echo "::error::Add the EXPO_TOKEN repository secret first"; exit 1; fi
           npx --yes eas-cli@latest whoami
 
+      - name: Build in the iCloud connection details (private - never in the repository or in over-the-air updates)
+        id: seed
+        env:
+          CF_SEED: ${{ secrets.CF_SEED }}
+        run: |
+          if [ -z "$CF_SEED" ]; then echo "::warning::No CF_SEED secret: this build sets itself up the first time it opens on normal internet instead"; echo "seeded=no" >> "$GITHUB_OUTPUT"; exit 0; fi
+          echo "seeded=yes" >> "$GITHUB_OUTPUT"
+          node -e "require('fs').writeFileSync('src/seed.js', '// Written by the build pipeline for this build only.\nexport const SEED = ' + JSON.stringify(process.env.CF_SEED) + ';\n')"
+          node -e "const s = require('fs').readFileSync('src/seed.js', 'utf8'); JSON.parse(JSON.parse(s.slice(s.indexOf('SEED = ') + 7, s.lastIndexOf(';')))); console.log('connection details written');"
+
       - name: Build the app on this Mac (eas build --local)
         run: npx --yes eas-cli@latest build --platform ios --profile production --local --non-interactive --output "$RUNNER_TEMP/app.ipa"
 
-      - name: Keep the .ipa as a download
+      - name: Check the build really carries its connection details
+        if: steps.seed.outputs.seeded == 'yes'
+        run: |
+          N=$(unzip -p "$RUNNER_TEMP/app.ipa" 'Payload/*.app/main.jsbundle' | grep -a -c 'iCloud.com.solyapps.classroomfeed' || true)
+          if [ "$N" = "0" ] || [ -z "$N" ]; then echo "::error::The built app does not contain its iCloud connection details"; exit 1; fi
+          echo "ok: connection details are in the app bundle"
+
+      - name: Lock the .ipa (this repository is public; the app stays private)
+        if: steps.seed.outputs.seeded == 'yes'
+        env:
+          ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
+        run: node scripts/lock.cjs enc "$RUNNER_TEMP/app.ipa" "$RUNNER_TEMP/app.ipa.enc"
+
+      - name: Keep the locked .ipa for the upload job
+        if: steps.seed.outputs.seeded == 'yes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa-locked
+          path: ${{ runner.temp }}/app.ipa.enc
+          retention-days: 3
+
+      - name: Keep the .ipa for the upload job (no private details inside)
+        if: steps.seed.outputs.seeded != 'yes'
         uses: actions/upload-artifact@v4
         with:
           name: ios-ipa
           path: ${{ runner.temp }}/app.ipa
-          retention-days: 7
+          retention-days: 3
 
   submit:
     needs: build
@@ -80,8 +117,15 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: ios-ipa
-          path: ${{ runner.temp }}
+          path: ${{ runner.temp }}/dl
+          merge-multiple: true
+
+      - name: Unlock the .ipa (when it was stored locked)
+        env:
+          ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
+        run: |
+          if [ -f "$RUNNER_TEMP/dl/app.ipa.enc" ]; then node scripts/lock.cjs dec "$RUNNER_TEMP/dl/app.ipa.enc" "$RUNNER_TEMP/app.ipa"; else cp "$RUNNER_TEMP/dl/app.ipa" "$RUNNER_TEMP/app.ipa"; fi
+          ls -la "$RUNNER_TEMP/app.ipa"
 
       - name: Send to TestFlight (waits until Apple has the build)
         run: npx --yes eas-cli@latest submit --platform ios --profile production --path "$RUNNER_TEMP/app.ipa" --non-interactive
