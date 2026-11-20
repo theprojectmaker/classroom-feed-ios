@@ -5,7 +5,7 @@ import React, { useContext, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { AppCtx } from '../ctx';
 import { T, classMetaList, classTone } from '../theme';
-import { Avatar, Btn, Card, Empty, IconBtn, MIcon, Text, WorkRow, gradeSummary, isNew, isOpen, niceCourse, startOfToday, teacherOf, useNow, workState } from '../ui';
+import { Avatar, Btn, Card, Empty, IconBtn, MIcon, Text, WorkRow, gradeSummary, isNew, isOpen, niceCourse, startOfToday, teacherOf, useLayoutWidth, useNow, workState } from '../ui';
 import { byClassroomOrder, classSection } from '../classes';
 import { connInfo, scanView } from '../conn';
 
@@ -90,7 +90,7 @@ export function ClassesScreen() {
   const e = useContext(AppCtx);
   const { items, openItem, openClass, refresh, refreshing, cfg, remote } = e;
   const { width } = useWindowDimensions();
-  const [cw, setCw] = useState(width - (e.sideW || 0));
+  const [cw, onPageLayout] = useLayoutWidth(width - (e.sideW || 0));
   const [soonOpen, setSoonOpen] = useState(false); // collapsed to begin with, as in Classroom
   const now = useNow(60000);
   const conn = connInfo(e, now);
@@ -121,7 +121,7 @@ export function ClassesScreen() {
   for (let k = 0; k < classes.length; k += cols) rows.push(classes.slice(k, k + cols));
 
   return (
-    <View style={{ flex: 1, backgroundColor: T.bg }} onLayout={(ev) => setCw(ev.nativeEvent.layout.width)}>
+    <View style={{ flex: 1, backgroundColor: T.bg }} onLayout={onPageLayout}>
       <ScrollView contentContainerStyle={s.page} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={T.faint} />}>
         <View style={s.wrap}>
           {!cfg.token && !e.canReadCloud ? (

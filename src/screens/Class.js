@@ -5,7 +5,7 @@ import React, { useContext, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { AppCtx } from '../ctx';
 import { T, classTone } from '../theme';
-import { Avatar, Btn, Dropdown, Empty, GroupHead, IconBtn, MIcon, RowIcon, StatePill, Tabs, Text, WorkRow, DONE_STATES, gradeParts, gradeSummary, isOpen, isWork, monthKey, monthLabel, niceCourse, niceName, postedDetail, realName, shortDue, teacherOf, workState } from '../ui';
+import { Avatar, Btn, Dropdown, Empty, GroupHead, IconBtn, MIcon, RowIcon, StatePill, Tabs, Text, WorkRow, DONE_STATES, gradeParts, gradeSummary, isOpen, isWork, monthKey, monthLabel, niceCourse, niceName, postedDetail, realName, shortDue, teacherOf, useLayoutWidth, workState } from '../ui';
 import { classSection } from '../classes';
 
 const posted = (i) => i.posted_at || i.created_at || 0;
@@ -54,7 +54,7 @@ export function ClassScreen({ name, tab: startTab }) {
   const e = useContext(AppCtx);
   const { items, openItem } = e;
   const { width } = useWindowDimensions();
-  const [cw, setCw] = useState(width - (e.sideW || 0));
+  const [cw, onPageLayout] = useLayoutWidth(width - (e.sideW || 0));
   const [tab, setTab] = useState(startTab || 'stream');
   const [topic, setTopic] = useState('');
   const [fold, setFold] = useState({});
@@ -127,7 +127,7 @@ export function ClassScreen({ name, tab: startTab }) {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#fff' }} onLayout={(ev) => setCw(ev.nativeEvent.layout.width)}>
+    <View style={{ flex: 1, backgroundColor: '#fff' }} onLayout={onPageLayout}>
       <Tabs fill={cw < 640} options={[['stream', 'Stream'], ['classwork', 'Classwork'], ['people', 'People'], ['grades', 'Grades']]} value={tab} onChange={setTab} />
 
       {tab === 'stream' && (

@@ -311,6 +311,20 @@ export const Empty = ({ icon = 'sparkles-outline', title, text, children }) => (
   </View>
 );
 
+/** The width of a page for choosing its layout: the first measure at once, later ones once the width has settled for a moment. */
+export function useLayoutWidth(initial) {
+  const [w, setW] = React.useState(initial);
+  const timer = React.useRef(null), first = React.useRef(true);
+  const onLayout = React.useCallback((ev) => {
+    const x = ev.nativeEvent.layout.width;
+    if (first.current) { first.current = false; setW(x); return; }
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setW(x), 110);
+  }, []);
+  React.useEffect(() => () => clearTimeout(timer.current), []);
+  return [w, onLayout];
+}
+
 /** Re-renders on a timer so "2 min ago" style labels stay true. */
 export function useNow(ms = 15000) {
   const [n, setN] = React.useState(Date.now());

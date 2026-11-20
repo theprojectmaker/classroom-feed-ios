@@ -9,7 +9,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppCtx } from '../ctx';
 import { T } from '../theme';
-import { Avatar, Btn, FileBadge, Header, IconBtn, MIcon, Progress, RowIcon, Text, WorkRow, cleanBody, hasUpdate, isOpen, isWork, niceName, parseThread, postedDetail, realName, shortDue, whenLabel, workState } from '../ui';
+import { Avatar, Btn, FileBadge, Header, IconBtn, MIcon, Progress, RowIcon, Text, WorkRow, cleanBody, hasUpdate, isOpen, isWork, niceName, parseThread, postedDetail, realName, shortDue, useLayoutWidth, whenLabel, workState } from '../ui';
 import { fmtBytes } from '../lib';
 import { fileExists, openFile, resolveLocal } from '../files';
 import { turninView } from '../conn';
@@ -168,7 +168,7 @@ export function ItemScreen({ id }) {
   const [askEmpty, setAskEmpty] = useState(false);
   const [askResubmit, setAskResubmit] = useState(false);
   const { width } = useWindowDimensions();
-  const [cw, setCw] = useState(width - (e.sideW || 0)); // corrected by onLayout once the page is drawn
+  const [cw, onPageLayout] = useLayoutWidth(width - (e.sideW || 0)); // corrected by onLayout once the page is drawn
   const item = items.find((i) => i.id === id);
   if (!item) return <View style={{ flex: 1, backgroundColor: '#fff', justifyContent: 'center' }}><Text style={[s.none, { textAlign: 'center' }]}>This post is not here any more.</Text><View style={{ alignItems: 'center', marginTop: 16 }}><Btn kind="outline" label="Go back" onPress={pop} /></View></View>;
   const two = cw >= TWO; // big screen: instructions on the left, Your work + Private comments on the right — as Classroom does
@@ -305,7 +305,7 @@ export function ItemScreen({ id }) {
     : (!!item.comments && <View style={s.panel}><View style={s.panelHead}><MIcon n="account-outline" s={24} c={T.ink} /><Text style={s.panelTitle}>Private comments</Text></View><Text style={s.body}>{item.comments}</Text></View>);
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#fff' }} onLayout={(ev) => setCw(ev.nativeEvent.layout.width)}>
+    <View style={{ flex: 1, backgroundColor: '#fff' }} onLayout={onPageLayout}>
       {/* the keyboard pushes the page up instead of covering the comment box */}
       <ScrollView contentContainerStyle={s.page} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
         <View style={[s.wrap, two && s.wrapTwo]}>
