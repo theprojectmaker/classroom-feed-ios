@@ -1,14 +1,14 @@
-// To-do (Assigned / Missing / Done, like Google Classroom), Calendar (what is due each day of a week), and Search.
+// To-do (Assigned / Missing / Done, with an "All classes" filter, as in Google Classroom), a week Calendar, and Search.
 import React, { useContext, useMemo, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { AppCtx } from '../ctx';
-import { T, classPair } from '../theme';
-import { BUCKETS, Card, Chip, Empty, FileBadge, GroupLabel, Header, Icon, IconBtn, LargeTitle, PAST_BUCKETS, Seg, WorkRow, bucketOf, isDone, isNew, isOpen, isWork, kindOf, pastBucketOf, sameDay, startOfWeek, workState } from '../ui';
+import { T } from '../theme';
+import { AppBar, Chip, Dropdown, Empty, FileBadge, GroupHead, IconBtn, MIcon, PAST_BUCKETS, Tabs, Text, WorkRow, isDone, isNew, isOpen, isWork, kindOf, niceCourse, pastBucketOf, sameDay, startOfWeek, workState } from '../ui';
 import { fmtBytes } from '../lib';
 
 const DAY = 86400000;
 
-/** The classes, with what is open in each (for the sidebar). */
+/** The classes, with what is open in each (for the menu). */
 export function useClasses(items) {
   return useMemo(() => {
     const m = new Map();
@@ -24,14 +24,22 @@ export function useClasses(items) {
   }, [items]);
 }
 
+/** Classroom's groups for work that is still to do. */
+const ASSIGNED = ['No due date', 'This week', 'Next week', 'Later'];
+function assignedBucket(i) {
+  if (!i.dueAt) return 'No due date';
+  const w0 = startOfWeek();
+  return i.dueAt < w0 + 7 * DAY ? 'This week' : i.dueAt < w0 + 14 * DAY ? 'Next week' : 'Later';
+}
+
 /* ---------- To-do ---------- */
 export function TodoScreen() {
   const e = useContext(AppCtx);
-  const { items, openItem, refresh, refreshing, todoSeg, setTodoSeg, openAdd } = e;
+  const { items, openItem, refresh, refreshing, todoSeg, setTodoSeg } = e;
   const [cls, setCls] = useState('');
+  const [fold, setFold] = useState({});
   const work = useMemo(() => items.filter(isWork), [items]);
   const names = useMemo(() => [...new Set(work.map((i) => i.course || 'Other'))].sort(), [work]);
-  const counts = useMemo(() => ({ todo: work.filter((i) => isOpen(i) && workState(i) !== 'late').length, missing: work.filter((i) => isOpen(i) && workState(i) === 'late').length }), [work]);
   const groups = useMemo(() => {
     const list = work.filter((i) => !cls || (i.course || 'Other') === cls);
     const pinFirst = (a, b) => (b.starred ? 1 : 0) - (a.starred ? 1 : 0);
@@ -44,30 +52,29 @@ export function TodoScreen() {
       return PAST_BUCKETS.map((b) => [b, done.filter((i) => pastBucketOf(i) === b)]).filter(([, g]) => g.length);
     }
     const open = list.filter((i) => isOpen(i) && workState(i) !== 'late');
-    return BUCKETS.map((b) => [b, open.filter((i) => bucketOf(i) === b).sort((a, c) => pinFirst(a, c) || (a.dueAt || 9e15) - (c.dueAt || 9e15))]).filter(([, g]) => g.length);
+    return ASSIGNED.map((b) => [b, open.filter((i) => assignedBucket(i) === b).sort((a, c) => pinFirst(a, c) || (a.dueAt || 9e15) - (c.dueAt || 9e15))]).filter(([, g]) => g.length);
   }, [work, todoSeg, cls]);
   return (
-    <View style={{ flex: 1 }}>
-      <LargeTitle title="To-do" right={<View style={{ paddingBottom: 6 }}><IconBtn icon="add" onPress={openAdd} /></View>} />
-      <View style={s.pad}><Seg value={todoSeg} onChange={setTodoSeg} options={[['todo', 'Assigned', counts.todo], ['missing', 'Missing', counts.missing], ['done', 'Done']]} /></View>
-      <View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chips}>
-          <Chip label="All classes" on={!cls} onPress={() => setCls('')} />
-          {names.map((n) => <Chip key={n} label={n} on={cls === n} color={classPair(n)[0]} onPress={() => setCls(cls === n ? '' : n)} />)}
-        </ScrollView>
-      </View>
+    <View style={{ flex: 1, backgroundColor: '#fff' }}>
+      <AppBar brand crumb="To-do" onMenu={e.openDrawer} right={<IconBtn mi="plus" onPress={e.openAdd} color={T.sub} />} />
+      <Tabs options={[['todo', 'Assigned'], ['missing', 'Missing'], ['done', 'Done']]} value={todoSeg} onChange={setTodoSeg} />
       <ScrollView contentContainerStyle={s.page} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={T.faint} />}>
         <View style={s.wrap}>
+          <Dropdown value={cls} onChange={setCls} style={{ width: '100%', maxWidth: 340 }} options={[['', 'All classes'], ...names.map((n) => [n, niceCourse(n)])]} />
           {groups.length === 0 && (
             <Empty icon={todoSeg === 'done' ? 'file-tray-outline' : 'checkmark-done'} title={todoSeg === 'todo' ? 'No work assigned' : todoSeg === 'missing' ? 'Nothing missing' : 'Nothing done yet'}
               text={todoSeg === 'todo' ? 'You’re all caught up.' : todoSeg === 'missing' ? 'Nice — nothing is overdue.' : 'Work you turn in shows up here.'} />
           )}
-          {groups.map(([title, g]) => (
-            <View key={title} style={{ marginBottom: 20 }}>
-              <GroupLabel title={title} count={g.length} tone={todoSeg === 'missing' ? 'red' : undefined} />
-              <Card>{g.map((i, k) => <WorkRow key={i.id} item={i} showCourse={!cls} last={k === g.length - 1} onPress={() => openItem(i.id)} onLongPress={() => e.togglePin(i)} />)}</Card>
-            </View>
-          ))}
+          {groups.map(([title, g]) => {
+            const key = todoSeg + title;
+            return (
+              <View key={key} style={{ marginTop: 12 }}>
+                <GroupHead title={title} count={g.length} open={!fold[key]} onToggle={() => setFold((f) => ({ ...f, [key]: !f[key] }))} />
+                {!fold[key] && g.map((i, k) => <WorkRow key={i.id} item={i} showCourse={!cls} last={k === g.length - 1} onPress={() => openItem(i.id)} onLongPress={() => e.togglePin(i)} />)}
+                <View style={s.rule} />
+              </View>
+            );
+          })}
         </View>
       </ScrollView>
     </View>
@@ -91,15 +98,15 @@ export function CalendarScreen() {
   const label = (ms, o) => new Date(ms).toLocaleDateString([], o);
   const range = `${label(start, { month: 'short', day: 'numeric' })} – ${label(start + 6 * DAY, { month: 'short', day: 'numeric' })}`;
   return (
-    <View style={{ flex: 1 }}>
-      <LargeTitle title="Calendar" subtitle={week === 0 ? 'This week' : week === 1 ? 'Next week' : week === -1 ? 'Last week' : range} />
-      <View style={[s.pad, s.weekBar]}>
-        <IconBtn icon="chevron-back" onPress={() => setWeek(week - 1)} bg="#fff" />
+    <View style={{ flex: 1, backgroundColor: '#fff' }}>
+      <AppBar brand crumb="Calendar" onMenu={e.openDrawer} />
+      <View style={s.weekBar}>
+        <IconBtn mi="chevron-left" onPress={() => setWeek(week - 1)} color={T.sub} />
         <Pressable onPress={() => setWeek(0)} style={({ pressed }) => [s.weekMid, pressed && { opacity: 0.5 }]}>
           <Text style={s.weekTxt}>{range}</Text>
-          <Text style={s.weekSub}>{total ? `${total} due` : 'Nothing due'}{week !== 0 ? ' · tap for this week' : ''}</Text>
+          <Text style={s.weekSub}>{week === 0 ? 'This week' : week === 1 ? 'Next week' : week === -1 ? 'Last week' : 'Tap for this week'} · {total ? `${total} due` : 'nothing due'}</Text>
         </Pressable>
-        <IconBtn icon="chevron-forward" onPress={() => setWeek(week + 1)} bg="#fff" />
+        <IconBtn mi="chevron-right" onPress={() => setWeek(week + 1)} color={T.sub} />
       </View>
       <ScrollView contentContainerStyle={s.page} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={T.faint} />}>
         <View style={s.wrap}>
@@ -108,11 +115,11 @@ export function CalendarScreen() {
             return (
               <View key={d.t} style={s.day}>
                 <View style={s.dayHead}>
-                  <View style={[s.dayNum, today && { backgroundColor: T.redFill }]}><Text style={[s.dayNumTxt, today && { color: '#fff' }]}>{new Date(d.t).getDate()}</Text></View>
-                  <Text style={[s.dayName, today && { color: T.red }]}>{label(d.t, { weekday: 'long' })}{today ? ' · Today' : ''}</Text>
+                  <View style={[s.dayNum, today && { backgroundColor: T.brand }]}><Text style={[s.dayNumTxt, today && { color: '#fff' }]}>{new Date(d.t).getDate()}</Text></View>
+                  <Text style={[s.dayName, today && { color: T.brand }]}>{label(d.t, { weekday: 'long' })}{today ? ' · Today' : ''}</Text>
                 </View>
                 {d.list.length === 0 ? <Text style={s.dayNone}>Nothing due</Text>
-                  : <Card>{d.list.map((i, k) => <WorkRow key={i.id} item={i} showCourse last={k === d.list.length - 1} onPress={() => openItem(i.id)} onLongPress={() => e.togglePin(i)} />)}</Card>}
+                  : d.list.map((i, k) => <WorkRow key={i.id} item={i} showCourse last={k === d.list.length - 1} onPress={() => openItem(i.id)} onLongPress={() => e.togglePin(i)} />)}
               </View>
             );
           })}
@@ -135,12 +142,12 @@ export function FindScreen() {
   }, [items, q, kind]); // eslint-disable-line react-hooks/exhaustive-deps
   const fileRows = useMemo(() => (kind !== 'Files' ? [] : list.flatMap((i) => (i.files || []).filter((f) => !toks.length || toks.every((t) => (f.name + ' ' + i.title + ' ' + i.course).toLowerCase().includes(t))).map((f) => ({ f, i })))), [list, kind]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <View style={{ flex: 1 }}>
-      <Header title="Search" onBack={pop} backLabel="Back" />
+    <View style={{ flex: 1, backgroundColor: '#fff' }}>
+      <AppBar onBack={pop} title="Search" />
       <View style={s.searchWrap}>
-        <Icon n="search" s={18} c={T.faint} />
+        <MIcon n="magnify" s={22} c={T.sub} />
         <TextInput value={q} onChangeText={setQ} autoFocus placeholder="Titles, instructions, file names, your notes" placeholderTextColor={T.faint} style={s.search} autoCorrect={false} autoCapitalize="none" returnKeyType="search" />
-        {!!q && <Pressable onPress={() => setQ('')} hitSlop={10}><Icon n="close-circle" s={18} c={T.faint} /></Pressable>}
+        {!!q && <Pressable onPress={() => setQ('')} hitSlop={10}><MIcon n="close" s={20} c={T.sub} /></Pressable>}
       </View>
       <View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chips} keyboardShouldPersistTaps="handled">
@@ -148,46 +155,46 @@ export function FindScreen() {
         </ScrollView>
       </View>
       {kind === 'Files' ? (
-        <FlatList data={fileRows} keyExtractor={(r) => r.f.id} keyboardShouldPersistTaps="handled" contentContainerStyle={s.page}
+        <FlatList data={fileRows} keyExtractor={(r) => r.f.id} keyboardShouldPersistTaps="handled" contentContainerStyle={s.listPad}
           ListEmptyComponent={<Empty icon="document-outline" title="No files match" />}
           renderItem={({ item: r }) => (
-            <Pressable onPress={() => openPreview(r.f, r.i.files)} style={({ pressed }) => [s.fileRow, pressed && { opacity: 0.6 }]}>
+            <Pressable onPress={() => openPreview(r.f, r.i.files)} style={({ pressed }) => [s.fileRow, pressed && { backgroundColor: T.tonal }]}>
               <FileBadge name={r.f.name} />
               <View style={{ flex: 1 }}>
                 <Text style={s.fileName} numberOfLines={2}>{r.f.name}</Text>
-                <Text style={s.fileSub} numberOfLines={1}>{r.i.course} · {r.i.title}</Text>
+                <Text style={s.fileSub} numberOfLines={1}>{niceCourse(r.i.course)} · {r.i.title}</Text>
               </View>
               <Text style={s.fileSub}>{fmtBytes(r.f.size)}</Text>
             </Pressable>
           )} />
       ) : (
-        <FlatList data={list} keyExtractor={(i) => i.id} keyboardShouldPersistTaps="handled" contentContainerStyle={s.page}
+        <FlatList data={list} keyExtractor={(i) => i.id} keyboardShouldPersistTaps="handled" contentContainerStyle={s.listPad}
           ListEmptyComponent={<Empty icon="search-outline" title={q ? 'No matches' : 'Nothing here yet'} text={q ? 'Try fewer words.' : ''} />}
-          renderItem={({ item }) => <View style={s.findRow}><WorkRow item={item} showCourse last onPress={() => openItem(item.id)} /></View>} />
+          renderItem={({ item }) => <WorkRow item={item} showCourse last onPress={() => openItem(item.id)} />} />
       )}
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  pad: { paddingHorizontal: 16 },
-  page: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 120 },
-  wrap: { width: '100%', maxWidth: 820, alignSelf: 'center' },
+  page: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 120 },
+  wrap: { width: '100%', maxWidth: 960, alignSelf: 'center' },
+  rule: { height: 1, backgroundColor: T.line },
+  weekBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: T.line },
+  weekMid: { flex: 1, alignItems: 'center', paddingVertical: 8 },
+  weekTxt: { fontSize: 16, fontWeight: '500', color: T.ink },
+  weekSub: { fontSize: 12, color: T.sub, marginTop: 1 },
+  day: { marginBottom: 14 },
+  dayHead: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 4, paddingVertical: 4 },
+  dayNum: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: T.tonal },
+  dayNumTxt: { fontSize: 15, fontWeight: '500', color: T.ink },
+  dayName: { fontSize: 16, fontWeight: '500', color: T.ink },
+  dayNone: { fontSize: 14, color: T.faint, paddingLeft: 44, paddingBottom: 6 },
+  searchWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 16, marginTop: 8, paddingHorizontal: 16, height: 48, borderRadius: 24, backgroundColor: T.tonal2 },
+  search: { flex: 1, fontSize: 16, color: T.ink, fontFamily: 'GoogleSans_400Regular', outlineStyle: 'none' },
   chips: { paddingHorizontal: 16, paddingVertical: 12, gap: 8 },
-  weekBar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingBottom: 6 },
-  weekMid: { flex: 1, alignItems: 'center', backgroundColor: '#fff', borderRadius: 12, paddingVertical: 7 },
-  weekTxt: { fontSize: 16, fontWeight: '600', color: T.ink, letterSpacing: -0.2 },
-  weekSub: { fontSize: 12.5, color: T.sub, marginTop: 1 },
-  day: { marginBottom: 16 },
-  dayHead: { flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 8, paddingHorizontal: 4 },
-  dayNum: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
-  dayNumTxt: { fontSize: 15, fontWeight: '600', color: T.ink },
-  dayName: { fontSize: 16, fontWeight: '600', color: T.ink, letterSpacing: -0.2 },
-  dayNone: { fontSize: 14.5, color: T.faint, paddingHorizontal: 43, marginTop: -4 },
-  searchWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, paddingHorizontal: 10, height: 38, borderRadius: 10, backgroundColor: T.fill },
-  search: { flex: 1, fontSize: 17, color: T.ink, outlineStyle: 'none' },
-  fileRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, backgroundColor: '#fff', borderRadius: T.radius, marginBottom: 10 },
-  fileName: { fontSize: 15.5, color: T.ink, fontWeight: '500' },
-  fileSub: { fontSize: 13, color: T.sub, marginTop: 2 },
-  findRow: { backgroundColor: '#fff', borderRadius: T.radius, marginBottom: 10, overflow: 'hidden' },
+  listPad: { paddingHorizontal: 16, paddingBottom: 120 },
+  fileRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: T.line },
+  fileName: { fontSize: 15, color: T.ink },
+  fileSub: { fontSize: 12, color: T.sub, marginTop: 2 },
 });

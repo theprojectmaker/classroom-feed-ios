@@ -8,6 +8,7 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@expo-google-fonts/google-sans": "^0.4.4",
     "@expo/vector-icons": "^15.0.2",
     "@noble/curves": "^1.9.7",
     "@noble/hashes": "^1.8.0",

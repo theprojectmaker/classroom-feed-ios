@@ -133,7 +133,12 @@ export function cleanBody(body) {
     const x = L[k].trim();
     if (pts(x)) points = x; else if (x && !junk(x)) break;
   }
-  return { text: L.slice(k).join('\n').trim(), points };
+  // Classroom's own buttons and field labels come along with a question's page text ("Your answer", "Turn in", …): not instructions.
+  const ui = /^(Your answer|Assigned|Work cannot be turned in after the due date|Mark as done|Turn in|Turned in|Resubmit|Unsubmit)$/i;
+  const rest = L.slice(k);
+  while (rest.length && (!rest[rest.length - 1].trim() || ui.test(rest[rest.length - 1].trim()))) rest.pop();
+  const text = rest.filter((x) => !/^(Your answer|Assigned|Work cannot be turned in after the due date)$/i.test(x.trim())).join('\n').trim();
+  return { text, points };
 }
 
 /** "CATHERINE LEONG (North High)" -> "Catherine Leong": a teacher's name the way you would write it. */

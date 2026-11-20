@@ -1,10 +1,11 @@
-// Readable instructions, your own notes and steps on a post, and the "add my own assignment" form.
+// Readable instructions, your own notes and steps on a post, and the "add my own assignment" form — drawn like Google Classroom
+// (Google Sans, outlined panels, Material fields).
 import React, { useContext, useEffect, useState } from 'react';
-import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { T, shadowSm } from './theme';
+import { T } from './theme';
 import { AppCtx } from './ctx';
-import { Btn, Chip, DAY, Header, Icon, Progress, shortDue, startOfToday } from './ui';
+import { Btn, Chip, DAY, Header, MIcon, Progress, Text, shortDue, startOfToday } from './ui';
 
 /* ---------- readable text: bullets, headings, tappable links ---------- */
 function linkify(t) {
@@ -15,7 +16,7 @@ function linkify(t) {
 export function RichText({ text }) {
   const lines = String(text || '').split('\n');
   return (
-    <View style={{ paddingHorizontal: 16 }}>
+    <View>
       {lines.map((raw, i) => {
         const t = raw.replace(/\s+$/, '');
         if (!t.trim()) return <View key={i} style={{ height: 10 }} />;
@@ -44,8 +45,8 @@ export function NotesCard({ item }) {
     return () => clearTimeout(t);
   }, [v]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <View style={[x.card, shadowSm]}>
-      <View style={x.cardHead}><Icon n="create-outline" s={18} c={T.brand} /><Text style={x.cardTitle}>My notes</Text></View>
+    <View style={x.card}>
+      <View style={x.cardHead}><MIcon n="note-edit-outline" s={22} c={T.sub} /><Text style={x.cardTitle}>My notes</Text></View>
       <TextInput multiline value={v} onChangeText={setV} placeholder="Anything to remember: key ideas, questions, what the teacher said…" placeholderTextColor={T.faint} style={x.notes} />
     </View>
   );
@@ -60,21 +61,21 @@ export function StepsCard({ item }) {
   const add = () => { const t = v.trim(); if (!t) return; set([...steps, { t, done: false }]); setV(''); };
   const done = steps.filter((p) => p.done).length;
   return (
-    <View style={[x.card, shadowSm]}>
+    <View style={x.card}>
       <View style={x.cardHead}>
-        <Icon n="list-outline" s={18} c={T.brand} /><Text style={x.cardTitle}>Steps</Text>
+        <MIcon n="format-list-checks" s={22} c={T.sub} /><Text style={x.cardTitle}>Steps</Text>
         {steps.length > 0 && <Text style={x.cardCount}>{done}/{steps.length}</Text>}
       </View>
-      {steps.length > 0 && <Progress value={done / steps.length} color={T.green} style={{ marginBottom: 6 }} />}
+      {steps.length > 0 && <Progress value={done / steps.length} color={T.greenFill} style={{ marginBottom: 6 }} />}
       {steps.map((p, i) => (
         <Pressable key={i} onPress={() => set(steps.map((q, k) => (k === i ? { ...q, done: !q.done } : q)))} onLongPress={() => set(steps.filter((_, k) => k !== i))} style={x.step}>
-          <Icon n={p.done ? 'checkbox' : 'square-outline'} s={22} c={p.done ? T.green : T.faint} />
-          <Text style={[x.stepTxt, p.done && { textDecorationLine: 'line-through', color: T.sub }]}>{p.t}</Text>
+          <MIcon n={p.done ? 'checkbox-marked' : 'checkbox-blank-outline'} s={24} c={p.done ? T.brand : T.faint} />
+          <Text style={[x.stepTxt, p.done && { textDecorationLine: 'line-through', color: T.faint }]}>{p.t}</Text>
         </Pressable>
       ))}
       <View style={x.addRow}>
         <TextInput value={v} onChangeText={setV} onSubmitEditing={add} placeholder="Add a step (hold a step to remove it)" placeholderTextColor={T.faint} style={x.addInput} returnKeyType="done" />
-        <Pressable onPress={add} hitSlop={8}><Icon n="add-circle" s={30} c={T.brand} /></Pressable>
+        <Pressable onPress={add} hitSlop={8} disabled={!v.trim()}><MIcon n="plus-circle" s={30} c={v.trim() ? T.brand : T.line} /></Pressable>
       </View>
     </View>
   );
@@ -130,22 +131,22 @@ export function AddModal({ classes, onSave, onClose }) {
 }
 
 const x = StyleSheet.create({
-  body: { fontSize: 16, lineHeight: 25, color: T.text },
-  head: { fontWeight: '800', marginTop: 6, color: T.ink },
-  link: { color: T.brand, textDecorationLine: 'underline' },
+  body: { fontSize: 15, lineHeight: 22, color: T.ink },
+  head: { fontWeight: '700', marginTop: 6, color: T.ink },
+  link: { color: T.brand },
   bulletRow: { flexDirection: 'row', gap: 8, paddingLeft: 4 },
-  bullet: { fontSize: 16, lineHeight: 25, color: T.sub, minWidth: 18 },
-  card: { marginTop: 18, padding: 16, borderRadius: T.radius, backgroundColor: '#fff' },
-  cardHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  cardTitle: { fontSize: 15, fontWeight: '800', color: T.ink, flex: 1 },
-  cardCount: { fontSize: 13, color: T.sub, fontWeight: '700' },
-  notes: { minHeight: 90, fontSize: 15.5, lineHeight: 22, color: T.text, textAlignVertical: 'top', padding: 0 },
-  step: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
-  stepTxt: { flex: 1, fontSize: 15.5, color: T.text },
+  bullet: { fontSize: 15, lineHeight: 22, color: T.sub, minWidth: 18 },
+  card: { marginTop: 24, padding: 16, borderRadius: 16, backgroundColor: '#fff', borderWidth: 1, borderColor: T.line },
+  cardHead: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
+  cardTitle: { fontSize: 16, fontWeight: '500', color: T.ink, flex: 1 },
+  cardCount: { fontSize: 14, color: T.sub, fontWeight: '500' },
+  notes: { minHeight: 90, fontSize: 15, lineHeight: 22, color: T.ink, fontFamily: 'GoogleSans_400Regular', textAlignVertical: 'top', padding: 0, outlineStyle: 'none' },
+  step: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
+  stepTxt: { flex: 1, fontSize: 15, color: T.ink },
   addRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
-  addInput: { flex: 1, fontSize: 15, color: T.text, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: T.line },
-  lbl: { fontSize: 12.5, fontWeight: '800', color: T.faint, marginTop: 20, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.8 },
-  field: { backgroundColor: '#fff', borderWidth: 1, borderColor: T.line, borderRadius: 12, padding: 12, fontSize: 15.5, color: T.ink },
+  addInput: { flex: 1, fontSize: 15, color: T.ink, fontFamily: 'GoogleSans_400Regular', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: T.line, outlineStyle: 'none' },
+  lbl: { fontSize: 14, fontWeight: '500', color: T.sub, marginTop: 22, marginBottom: 8 },
+  field: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#747775', borderRadius: 4, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, color: T.ink, fontFamily: 'GoogleSans_400Regular', outlineStyle: 'none' },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   hint: { fontSize: 12.5, color: T.sub, marginTop: 8, lineHeight: 18 },
 });

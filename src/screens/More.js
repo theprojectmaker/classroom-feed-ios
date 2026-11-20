@@ -1,16 +1,17 @@
-// Settings ("More"), the Connection page, the "what's new" sheet and the toast.
+// Settings, the Connection page, the "what's new" sheet and the toast — drawn like Google Classroom's own settings (Google Sans,
+// 22-point section headings, outlined white panels, Material switches and dialogs).
 import React, { useContext, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { AppCtx } from '../ctx';
-import { T, classPair, hair } from '../theme';
-import { Btn, Card, Header, Icon, LargeTitle, Line, SectionTitle, WorkRow, agoLabel, niceCourse, isWork, useNow } from '../ui';
+import { T, classTone } from '../theme';
+import { AppBar, Avatar, Btn, Card, Header, MIcon, Line, SectionTitle, Text, WorkRow, agoLabel, niceCourse, useNow } from '../ui';
 import { PROBES, fmtBytes, runProbe } from '../lib';
 import { connInfo } from '../conn';
 
 const Row = ({ ok, title, sub, right }) => (
   <View style={s.row}>
-    <Icon n={ok === true ? 'checkmark-circle' : ok === false ? 'close-circle' : 'ellipse-outline'} s={22} c={ok === true ? T.green : ok === false ? T.red : T.faint} />
-    <View style={{ flex: 1 }}><Text style={s.rowTitle}>{title}</Text>{!!sub && <Text style={s.rowSub}>{sub}</Text>}</View>
+    <MIcon n={ok === true ? 'check-circle' : ok === false ? 'close-circle' : 'circle-outline'} s={22} c={ok === true ? T.greenFill : ok === false ? T.red : '#C4C7C5'} />
+    <View style={{ flex: 1, minWidth: 0 }}><Text style={s.rowTitle}>{title}</Text>{!!sub && <Text style={s.rowSub}>{sub}</Text>}</View>
     {right}
   </View>
 );
@@ -38,23 +39,23 @@ export function MoreScreen() {
     catch { setPushMsg('No connection right now. Try again in a moment.'); }
   };
   return (
-    <View style={{ flex: 1 }}>
-      <LargeTitle title="Settings" />
+    <View style={{ flex: 1, backgroundColor: T.bg }}>
+      <AppBar brand crumb="Settings" onMenu={e.openDrawer} right={<View style={{ paddingRight: 8 }}><Avatar name={cfg.name || 'S'} size={32} /></View>} />
       <ScrollView contentContainerStyle={s.page} keyboardShouldPersistTaps="handled">
         <View style={s.wrap}>
-          <SectionTitle title="Connection" style={{ marginTop: 6 }} />
+          <SectionTitle title="Connection" style={{ marginTop: 8 }} />
           <Card>
-            <Pressable onPress={openConnection} style={({ pressed }) => [s.linkRow, pressed && { backgroundColor: T.soft }]}>
-              <View style={[s.dot, { backgroundColor: c.tone === 'green' ? T.green : c.tone === 'red' ? T.red : T.faint }]} />
-              <View style={{ flex: 1 }}><Text style={s.rowTitle}>{c.label}</Text><Text style={s.rowSub}>{c.detail}</Text><Text style={s.rowSub}>{c.pcLine}</Text></View>
-              <Icon n="chevron-forward" s={20} c={T.faint} />
+            <Pressable onPress={openConnection} style={({ pressed }) => [s.linkRow, pressed && { backgroundColor: T.tonal }]}>
+              <View style={[s.dot, { backgroundColor: c.tone === 'green' ? T.greenFill : c.tone === 'red' ? T.red : '#C4C7C5' }]} />
+              <View style={{ flex: 1, minWidth: 0 }}><Text style={s.rowTitle}>{c.label}</Text><Text style={s.rowSub}>{c.detail}</Text><Text style={s.rowSub}>{c.pcLine}</Text></View>
+              <MIcon n="chevron-right" s={24} c={T.faint} />
             </Pressable>
           </Card>
 
           <SectionTitle title="Account" />
           <Card style={{ padding: 16 }}>
             {cfg.token ? (<>
-              <Text style={s.body}>Signed in as <Text style={{ fontWeight: '800' }}>{cfg.name || 'you'}</Text></Text>
+              <Text style={s.body}>Signed in as <Text style={{ fontWeight: '500' }}>{cfg.name || 'you'}</Text></Text>
               <Text style={s.rowSub}>Your classes, files and turn-ins stay in step on every device signed in to this account.</Text>
               <View style={{ marginTop: 12, alignItems: 'flex-start' }}><Btn small kind="outline" label="Sign out" onPress={signOut} /></View>
             </>) : e.canReadCloud && !showSignIn ? (<>
@@ -79,19 +80,19 @@ export function MoreScreen() {
           </Card>
 
           <SectionTitle title="Notifications" />
-          <Card style={{ padding: 16, gap: 10 }}>
+          <Card style={{ padding: 16, gap: 12 }}>
             <Row ok={push.granted === null ? null : push.granted && !!push.token} title={push.granted === false ? 'Notifications are turned off' : push.token ? 'You get a notification for every new post' : 'Setting up notifications…'}
               sub={push.granted === false ? 'Turn them on for Classroom Feed in the Settings app.' : 'It is sent once the post and all its files have fully arrived, so it opens right away — also on school Wi-Fi.'} />
-            <View style={{ alignItems: 'flex-start' }}><Btn small kind="soft" icon="notifications-outline" label="Send me a test notification" onPress={testPush} /></View>
+            <View style={{ alignItems: 'flex-start' }}><Btn small kind="soft" mi="bell-outline" label="Send me a test notification" onPress={testPush} /></View>
             {!!pushMsg && <Text style={s.rowSub}>{pushMsg}</Text>}
           </Card>
 
           <SectionTitle title="App" />
-          <Card style={{ padding: 16, gap: 10 }}>
+          <Card style={{ padding: 16, gap: 12 }}>
             <Text style={s.rowSub}>New versions arrive through the TestFlight app, which also works on the school Wi-Fi. Small fixes install by themselves on normal internet.{ota.id ? `\nInstalled update: ${String(ota.id).slice(0, 8)}` : ''}</Text>
             <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
-              <Btn small kind="soft" icon="cloud-download-outline" label={ota.checking ? 'Checking…' : ota.ready ? 'Restart to update' : 'Check for an update'} onPress={ota.ready ? ota.apply : ota.check} />
-              <Btn small kind="soft" icon="add" label="Add my own assignment" onPress={openAdd} />
+              <Btn small kind="soft" mi="cloud-download-outline" label={ota.checking ? 'Checking…' : ota.ready ? 'Restart to update' : 'Check for an update'} onPress={ota.ready ? ota.apply : ota.check} />
+              <Btn small kind="soft" mi="plus" label="Add my own assignment" onPress={openAdd} />
             </View>
             {!!ota.note && <Text style={s.rowSub}>{ota.note}</Text>}
             <Pressable onPress={() => notify('Classroom Feed — made for you. Posts and files travel through iCloud so they reach the school Wi-Fi.')}><Text style={[s.rowSub, { color: T.faint }]}>Classroom Feed</Text></Pressable>
@@ -123,7 +124,7 @@ export function ConnectionScreen() {
   };
   const m = remote && remote.mirror;
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: T.bg }}>
       <Header title="Connection" onBack={pop} />
       <ScrollView contentContainerStyle={s.page}>
         <View style={s.wrap}>
@@ -140,7 +141,7 @@ export function ConnectionScreen() {
           <SectionTitle title="Try it" />
           <Card style={{ padding: 16, gap: 12 }}>
             <Text style={s.rowSub}>Sends a harmless request the same way a turn-in travels and waits for the answer.</Text>
-            <Btn icon="pulse" label={test && test.busy ? 'Waiting for the answer…' : 'Test the whole loop'} loading={!!(test && test.busy)} onPress={runTest} />
+            <Btn mi="pulse" label={test && test.busy ? 'Waiting for the answer…' : 'Test the whole loop'} loading={!!(test && test.busy)} onPress={runTest} />
             {test && !test.busy && <Row ok={test.ok} title={test.msg} />}
             {(outbox.length > 0 || jobs.length > 0) && <Text style={s.rowSub}>{outbox.length} request{outbox.length === 1 ? '' : 's'} and {jobs.length} file{jobs.length === 1 ? '' : 's'} waiting to go out.</Text>}
           </Card>
@@ -149,17 +150,17 @@ export function ConnectionScreen() {
           <Card style={{ padding: 16 }}>
             <View style={s.row}>
               <View style={{ flex: 1 }}><Text style={s.rowTitle}>Use iCloud only</Text><Text style={s.rowSub}>Makes the app behave exactly as it does on school Wi-Fi, so you can check at home that everything works there. Leave it off normally.</Text></View>
-              <Switch value={!!cfg.icloudOnly} onValueChange={e.setSchoolMode} trackColor={{ true: T.brand }} />
+              <Switch value={!!cfg.icloudOnly} onValueChange={e.setSchoolMode} trackColor={{ true: T.brand, false: '#E3E3E3' }} thumbColor="#fff" />
             </View>
           </Card>
 
           <SectionTitle title="What this Wi-Fi lets through" />
-          <Card style={{ padding: 16, gap: 10 }}>
-            <Btn small kind="soft" icon="wifi" label={running ? 'Testing…' : 'Run the network test'} onPress={runProbes} disabled={running} />
+          <Card style={{ padding: 16, gap: 12 }}>
+            <View style={{ alignItems: 'flex-start' }}><Btn small kind="soft" mi="wifi" label={running ? 'Testing…' : 'Run the network test'} onPress={runProbes} disabled={running} /></View>
             {res && PROBES.map((p) => { const r = res[p.name]; return <Row key={p.name} ok={r ? r.ok : null} title={p.name} sub={!r ? 'testing…' : r.ok ? `reachable · ${r.ms} ms` : r.error} />; })}
             {res && !running && <Text selectable style={[s.rowSub, { marginTop: 4 }]}>{'Report: ' + PROBES.map((p) => `${p.name}=${res[p.name] && res[p.name].ok ? 'OK' : 'blocked'}`).join(', ')}</Text>}
           </Card>
-          {remote && remote.ts ? <Text style={[s.rowSub, { textAlign: 'center', marginTop: 16 }]}>Status updated {agoLabel(remote.ts, now)}</Text> : null}
+          {remote && remote.ts ? <Text style={[s.rowSub, { textAlign: 'center', marginTop: 20 }]}>Status updated {agoLabel(remote.ts, now)}</Text> : null}
         </View>
       </ScrollView>
     </View>
@@ -182,13 +183,13 @@ export function WhatsNew({ fresh, onClose, onOpen }) {
           <Text style={s.sheetTitle}>{fresh.length} new from Google Classroom</Text>
           <ScrollView style={{ maxHeight: 440, marginTop: 6 }}>
             {groups.map((g) => (
-              <View key={g.course} style={{ marginTop: 12 }}>
-                <Text style={[s.sheetHead, { color: classPair(g.course)[0] }]}>{g.course}</Text>
-                <View style={s.sheetCard}>{g.list.map((i, k) => <WorkRow key={i.id} item={{ ...i, course: g.course }} last={k === g.list.length - 1} onPress={() => onOpen(i)} />)}</View>
+              <View key={g.course} style={{ marginTop: 14 }}>
+                <Text style={[s.sheetHead, { color: classTone(g.course).fg }]}>{g.course}</Text>
+                <View>{g.list.map((i, k) => <WorkRow key={i.id} item={{ ...i, course: g.course }} last={k === g.list.length - 1} onPress={() => onOpen(i)} />)}</View>
               </View>
             ))}
           </ScrollView>
-          <View style={{ marginTop: 16 }}><Btn label="Got it" onPress={onClose} /></View>
+          <View style={s.sheetActions}><Btn kind="ghost" label="Got it" onPress={onClose} /></View>
         </Pressable>
       </Pressable>
     </Modal>
@@ -206,7 +207,7 @@ export function UpdateStrip() {
   if (!ota.ready) return null;
   return (
     <Pressable onPress={ota.apply} style={s.strip}>
-      <Icon n="sparkles" s={16} c="#fff" />
+      <MIcon n="update" s={18} c="#fff" />
       <Text style={s.stripTxt}>A new version is ready — tap to restart</Text>
     </Pressable>
   );
@@ -217,19 +218,19 @@ const s = StyleSheet.create({
   wrap: { width: '100%', maxWidth: 760, alignSelf: 'center', paddingHorizontal: 16 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   linkRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16 },
-  rowTitle: { fontSize: 15, fontWeight: '700', color: T.ink },
+  rowTitle: { fontSize: 15, fontWeight: '500', color: T.ink },
   rowSub: { fontSize: 13, color: T.sub, marginTop: 2, lineHeight: 18 },
   dot: { width: 12, height: 12, borderRadius: 6 },
-  body: { fontSize: 15, lineHeight: 22, color: T.text },
-  label: { fontSize: 13, color: T.sub, marginTop: 14, marginBottom: 6, fontWeight: '600' },
-  field: { backgroundColor: '#fff', borderWidth: 1, borderColor: T.line, borderRadius: 12, padding: 12, fontSize: 15.5, color: T.ink },
-  scrim: { flex: 1, backgroundColor: '#0B132B80', justifyContent: 'center', padding: 20 },
-  sheet: { backgroundColor: T.bg, borderRadius: 24, padding: 20, maxWidth: 540, width: '100%', alignSelf: 'center' },
-  sheetTitle: { fontSize: 21, fontWeight: '800', color: T.ink },
-  sheetHead: { fontSize: 13, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6, marginLeft: 4 },
-  sheetCard: { backgroundColor: '#fff', borderRadius: 16, overflow: 'hidden', borderWidth: hair, borderColor: T.line },
-  notice: { position: 'absolute', left: 16, right: 16, alignSelf: 'center', maxWidth: 560, backgroundColor: '#0F172Af2', borderRadius: 14, paddingHorizontal: 16, paddingVertical: 13 },
-  noticeTxt: { color: '#fff', fontSize: 14, fontWeight: '600', textAlign: 'center' },
-  strip: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: T.brand, paddingVertical: 9 },
-  stripTxt: { color: '#fff', fontWeight: '700', fontSize: 13.5 },
+  body: { fontSize: 15, lineHeight: 22, color: T.ink },
+  label: { fontSize: 13, color: T.sub, marginTop: 16, marginBottom: 6, fontWeight: '500' },
+  field: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#747775', borderRadius: 4, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, color: T.ink, fontFamily: 'GoogleSans_400Regular', outlineStyle: 'none' },
+  scrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.32)', justifyContent: 'center', padding: 20 },
+  sheet: { backgroundColor: '#fff', borderRadius: 28, padding: 24, maxWidth: 540, width: '100%', alignSelf: 'center' },
+  sheetTitle: { fontSize: 24, fontWeight: '400', color: T.ink, lineHeight: 32 },
+  sheetHead: { fontSize: 14, fontWeight: '500', marginBottom: 2 },
+  sheetActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 16 },
+  notice: { position: 'absolute', left: 16, right: 16, alignSelf: 'center', maxWidth: 560, backgroundColor: '#313033', borderRadius: 8, paddingHorizontal: 16, paddingVertical: 14 },
+  noticeTxt: { color: '#F4EFF4', fontSize: 14, textAlign: 'left' },
+  strip: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: T.brand, paddingVertical: 10 },
+  stripTxt: { color: '#fff', fontWeight: '500', fontSize: 14 },
 });
