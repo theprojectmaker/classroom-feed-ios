@@ -242,7 +242,7 @@ export function StatePill({ item, plain }) {
   const s = workState(item);
   if (item.turnin === 'queued') return plain ? <Text style={[st.stateTxt, { color: T.brand }]}>Turning in…</Text> : <Pill label="Turning in…" tone="blue" icon="sync" />;
   if (s === 'open') return null;
-  const label = s === 'graded' && item.grade ? item.grade : STATE_LABEL[s];
+  const label = s === 'graded' && item.grade ? item.grade : s === 'turnedin' && /late/i.test(item.status || '') ? 'Turned in late' : STATE_LABEL[s]; // Classroom itself says "Done late"
   if (plain) return <Text style={[st.stateTxt, { color: STATE_COLOR[s] }]} numberOfLines={1}>{label}</Text>;
   return <Pill label={label} tone={s === 'late' ? 'red' : s === 'open' ? 'blue' : s === 'done' || s === 'excused' ? 'gray' : 'green'} />;
 }

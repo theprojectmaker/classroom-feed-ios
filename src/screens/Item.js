@@ -198,11 +198,12 @@ export function ItemScreen({ id }) {
   const editable = isQ && !turnedIn && !graded && !queued && tv.state !== 'done' && !dueLocked;
   const minsLeft = item.dueAt ? Math.ceil((item.dueAt - now) / 60000) : 0;
   const cb = cleanBody(item.body); // the instructions without Classroom's own header lines, and the points if it had any
-  const stateWord = queued ? 'Turning in…' : turnedIn ? 'Turned in' : excused ? 'Excused' : graded ? 'Graded' : ws === 'late' ? 'Missing' : ws === 'done' ? 'Done' : 'Assigned';
+  const stateWord = queued ? 'Turning in…' : turnedIn ? (/late/i.test(item.status || '') ? 'Turned in late' : 'Turned in') : excused ? 'Excused' : graded ? 'Graded' : ws === 'late' ? 'Missing' : ws === 'done' ? 'Done' : 'Assigned';
   const stateColor = ws === 'late' ? T.red : turnedIn || graded ? T.green : T.ink;
   const author = realName(item.author) ? niceName(item.author) : '';
   const line1 = [author, postedDetail(item)].filter(Boolean).join('  •  ');
-  const line2 = [item.topic, cb.points].filter(Boolean).join('  •  ');
+  const pts = item.points ? item.points + (item.points === '1' ? ' point' : ' points') : cb.points; // what it is worth, read from Classroom's own header (older posts: from the text)
+  const line2 = [item.topic, pts].filter(Boolean).join('  •  ');
   const due = work ? (item.dueAt || item.due ? 'Due ' + shortDue(item) : 'No due date') : '';
 
   const addAssets = async (assets) => { for (const a of assets) await e.addWork(item, a); };
