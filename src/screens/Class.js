@@ -5,7 +5,8 @@ import React, { useContext, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { AppCtx } from '../ctx';
 import { T, classTone } from '../theme';
-import { AppBar, Avatar, Btn, Dropdown, Empty, GroupHead, IconBtn, MIcon, RowIcon, StatePill, Tabs, Text, WorkRow, DONE_STATES, gradeParts, gradeSummary, isOpen, isWork, monthKey, monthLabel, niceCourse, niceName, postedDetail, realName, shortDue, teacherOf, workState } from '../ui';
+import { Avatar, Btn, Dropdown, Empty, GroupHead, IconBtn, MIcon, RowIcon, StatePill, Tabs, Text, WorkRow, DONE_STATES, gradeParts, gradeSummary, isOpen, isWork, monthKey, monthLabel, niceCourse, niceName, postedDetail, realName, shortDue, teacherOf, workState } from '../ui';
+import { classSection } from '../classes';
 
 const posted = (i) => i.posted_at || i.created_at || 0;
 /** "Today, 10:19 AM" / "Nov 17, 9:28 AM" — when it was posted, as a line of its own. */
@@ -51,9 +52,9 @@ function StreamPost({ item, who, onOpen, onMore }) {
 
 export function ClassScreen({ name, tab: startTab }) {
   const e = useContext(AppCtx);
-  const { items, openItem, pop } = e;
+  const { items, openItem } = e;
   const { width } = useWindowDimensions();
-  const [cw, setCw] = useState(width);
+  const [cw, setCw] = useState(width - (e.sideW || 0));
   const [tab, setTab] = useState(startTab || 'stream');
   const [topic, setTopic] = useState('');
   const [fold, setFold] = useState({});
@@ -127,10 +128,7 @@ export function ClassScreen({ name, tab: startTab }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }} onLayout={(ev) => setCw(ev.nativeEvent.layout.width)}>
-      {e.wide
-        ? <AppBar brand onMenu={e.openDrawer} onBrand={() => e.goTab('classes')} crumb={niceCourse(name)} crumbSub={teacher} />
-        : <AppBar onBack={pop} title={niceCourse(name)} subtitle={teacher} />}
-      <Tabs fill={!e.wide} options={[['stream', 'Stream'], ['classwork', 'Classwork'], ['people', 'People'], ['grades', 'Grades']]} value={tab} onChange={setTab} />
+      <Tabs fill={cw < 640} options={[['stream', 'Stream'], ['classwork', 'Classwork'], ['people', 'People'], ['grades', 'Grades']]} value={tab} onChange={setTab} />
 
       {tab === 'stream' && (
         <ScrollView contentContainerStyle={s.page}>
@@ -139,12 +137,12 @@ export function ClassScreen({ name, tab: startTab }) {
               <View style={[s.bannerA, { backgroundColor: tone.solid }]} />
               <View style={[s.bannerB, { backgroundColor: tone.solid }]} />
               <Text style={[s.bannerTitle, two && { fontSize: 36, lineHeight: 44 }]} numberOfLines={3}>{niceCourse(name)}</Text>
-              {!!teacher && <Text style={s.bannerSub}>{teacher}</Text>}
+              {!!(classSection(name) || teacher) && <Text style={s.bannerSub} numberOfLines={1}>{classSection(name) || teacher}</Text>}
             </View>
             <View style={two ? s.cols : null}>
               {upcomingCard}
               <View style={{ flex: 1 }}>
-                {mine.length === 0 && <Empty icon="chat-outline" title="Nothing posted yet" />}
+                {mine.length === 0 && <Empty icon="chatbubble-outline" title="Nothing posted yet" />}
                 {mine.map((i) => <StreamPost key={i.id} item={i} who={niceName(realName(i.author) ? i.author : '')} onOpen={() => openItem(i.id)} onMore={moreFor(i)} />)}
               </View>
             </View>

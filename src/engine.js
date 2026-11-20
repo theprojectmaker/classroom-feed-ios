@@ -225,7 +225,7 @@ export function useEngine({ onOpenItem }) {
     if (r.outbox.length) { const res = await api.ops(r.outbox.map(wire)); ackOps(res.done || []); }
     const st = await api.status();
     if (st.ck) setCk({ ...st.ck, ...(st.ckw || {}) });
-    setRemote({ lib: st.lib || null, scan: st.scan || {}, pc: st.pc || { seen: st.pcSeen || 0, busy: '' }, lastNew: st.lastNew || 0, people: st.people || null, ts: Date.now(), via: 'bot' });
+    setRemote({ lib: st.lib || null, scan: st.scan || {}, pc: st.pc || { seen: st.pcSeen || 0, busy: '' }, lastNew: st.lastNew || 0, people: st.people || null, classes: st.classes || null, ts: Date.now(), via: 'bot' });
     const ver = (st.lib && st.lib.ver) || 0;
     if (full || ver !== botLibVer.current) {
       const res = await api.items(lastSync.current);

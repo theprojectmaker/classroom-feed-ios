@@ -4,8 +4,9 @@
 import React, { useContext, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { AppCtx } from '../ctx';
-import { T, WIDE, classTone } from '../theme';
-import { AppBar, Avatar, Btn, Card, Empty, IconBtn, MIcon, Text, WorkRow, gradeSummary, isNew, isOpen, niceCourse, startOfToday, teacherOf, useNow, workState } from '../ui';
+import { T, classMetaList, classTone } from '../theme';
+import { Avatar, Btn, Card, Empty, IconBtn, MIcon, Text, WorkRow, gradeSummary, isNew, isOpen, niceCourse, startOfToday, teacherOf, useNow, workState } from '../ui';
+import { byClassroomOrder, classSection } from '../classes';
 import { connInfo, scanView } from '../conn';
 
 /** Small "Live · iCloud" chip. Tapping it opens the connection page. */
@@ -56,7 +57,8 @@ function ClassCard({ c, onOpen, onGrades, onWork, onMore }) {
     <Pressable onPress={onOpen} style={({ pressed }) => [s.card, { flex: 1, minWidth: 0 }, pressed && { opacity: 0.85 }]}>
       <View style={[s.cardHead, { backgroundColor: tone.bg }]}>
         <View style={[s.cardGlow, { backgroundColor: tone.solid }]} />
-        <Text style={s.cardTitle} numberOfLines={2}>{niceCourse(c.name)}</Text>
+        <Text style={s.cardTitle} numberOfLines={1}>{niceCourse(c.name)}</Text>
+        {!!classSection(c.name) && <Text style={s.cardSec} numberOfLines={1}>{classSection(c.name)}</Text>}
         {!!c.teacher && <Text style={s.cardTeacher} numberOfLines={1}>{c.teacher.toUpperCase()}</Text>}
       </View>
       <View style={s.cardAvatar}><Avatar name={c.teacher || niceCourse(c.name)} size={72} color={tone.solid} /></View>
@@ -86,10 +88,9 @@ function ClassCard({ c, onOpen, onGrades, onWork, onMore }) {
 
 export function ClassesScreen() {
   const e = useContext(AppCtx);
-  const { items, openItem, openClass, refresh, refreshing, cfg } = e;
+  const { items, openItem, openClass, refresh, refreshing, cfg, remote } = e;
   const { width } = useWindowDimensions();
-  const wide = width >= WIDE;
-  const [cw, setCw] = useState(width);
+  const [cw, setCw] = useState(width - (e.sideW || 0));
   const [soonOpen, setSoonOpen] = useState(false); // collapsed to begin with, as in Classroom
   const now = useNow(60000);
   const conn = connInfo(e, now);
@@ -104,10 +105,11 @@ export function ClassesScreen() {
       if (isOpen(i)) { if (workState(i) === 'late') c.late++; else if (i.dueAt) c.next.push(i); }
       m.set(k, c);
     }
-    const out = [...m.values()].sort((a, b) => a.name.localeCompare(b.name));
+    for (const mc of classMetaList()) if (!m.has(mc.name)) m.set(mc.name, { name: mc.name, late: 0, fresh: 0, next: [], all: [] }); // a class with no posts yet still has its card
+    const out = [...m.values()].sort(byClassroomOrder); // the order Classroom shows them in
     out.forEach((c) => { c.next = c.next.sort((a, b) => a.dueAt - b.dueAt).slice(0, 2); c.teacher = teacherOf(c.all); c.avg = gradeSummary(c.all).pct; c.all = null; });
     return out;
-  }, [items]);
+  }, [items, remote && remote.classes]); // eslint-disable-line react-hooks/exhaustive-deps
   const soon = useMemo(() => items.filter((i) => isOpen(i) && workState(i) !== 'late' && i.dueAt && i.dueAt < now + 7 * 86400000).sort((a, b) => a.dueAt - b.dueAt), [items, now]);
   const pinned = useMemo(() => items.filter((i) => i.starred), [items]);
 
@@ -120,7 +122,6 @@ export function ClassesScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: T.bg }} onLayout={(ev) => setCw(ev.nativeEvent.layout.width)}>
-      <AppBar brand onMenu={e.openDrawer} right={<View style={s.barRight}>{!wide && <ConnChip compact />}<Avatar name={cfg.name || 'S'} size={32} /></View>} />
       <ScrollView contentContainerStyle={s.page} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={T.faint} />}>
         <View style={s.wrap}>
           {!cfg.token && !e.canReadCloud ? (
@@ -191,7 +192,6 @@ export function ClassesScreen() {
 const s = StyleSheet.create({
   page: { paddingHorizontal: 8, paddingBottom: 120, paddingTop: 4 },
   wrap: { width: '100%', maxWidth: 1240, alignSelf: 'center' },
-  barRight: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingRight: 8 },
   conn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, height: 32, borderRadius: 16, backgroundColor: '#fff', borderWidth: 1, borderColor: T.line },
   connSm: { paddingHorizontal: 10, minWidth: 32, justifyContent: 'center' },
   connDot: { width: 8, height: 8, borderRadius: 4 },
@@ -220,7 +220,8 @@ const s = StyleSheet.create({
   cardHead: { height: 104, paddingHorizontal: 16, paddingTop: 14, justifyContent: 'flex-start', overflow: 'hidden' },
   cardGlow: { position: 'absolute', right: -50, top: -70, width: 190, height: 190, borderRadius: 95, opacity: 0.16 },
   cardTitle: { fontSize: 22, lineHeight: 27, color: T.ink, paddingRight: 72 },
-  cardTeacher: { fontSize: 12, color: T.ink, marginTop: 6, paddingRight: 84 },
+  cardSec: { fontSize: 14, color: T.ink, marginTop: 4, paddingRight: 84 },
+  cardTeacher: { fontSize: 12, color: T.ink, marginTop: 4, paddingRight: 84 },
   cardAvatar: { position: 'absolute', right: 16, top: 68 },
   cardBody: { minHeight: 104, paddingHorizontal: 16, paddingTop: 20, paddingBottom: 6 },
   cardNone: { fontSize: 13, color: T.faint },

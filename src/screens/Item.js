@@ -8,8 +8,8 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppCtx } from '../ctx';
-import { SIDEBAR, T, WIDE } from '../theme';
-import { AppBar, Avatar, Btn, FileBadge, Header, IconBtn, MIcon, Progress, RowIcon, Text, WorkRow, cleanBody, hasUpdate, isOpen, isWork, niceCourse, niceName, parseThread, postedDetail, realName, shortDue, whenLabel, workState } from '../ui';
+import { T } from '../theme';
+import { Avatar, Btn, FileBadge, Header, IconBtn, MIcon, Progress, RowIcon, Text, WorkRow, cleanBody, hasUpdate, isOpen, isWork, niceName, parseThread, postedDetail, realName, shortDue, whenLabel, workState } from '../ui';
 import { fmtBytes } from '../lib';
 import { fileExists, openFile, resolveLocal } from '../files';
 import { turninView } from '../conn';
@@ -168,9 +168,9 @@ export function ItemScreen({ id }) {
   const [askEmpty, setAskEmpty] = useState(false);
   const [askResubmit, setAskResubmit] = useState(false);
   const { width } = useWindowDimensions();
-  const [cw, setCw] = useState(width >= WIDE ? width - SIDEBAR : width); // corrected by onLayout once the page is drawn
+  const [cw, setCw] = useState(width - (e.sideW || 0)); // corrected by onLayout once the page is drawn
   const item = items.find((i) => i.id === id);
-  if (!item) return <View style={{ flex: 1, backgroundColor: T.bg }}><Header title="Not found" onBack={pop} /></View>;
+  if (!item) return <View style={{ flex: 1, backgroundColor: '#fff', justifyContent: 'center' }}><Text style={[s.none, { textAlign: 'center' }]}>This post is not here any more.</Text><View style={{ alignItems: 'center', marginTop: 16 }}><Btn kind="outline" label="Go back" onPress={pop} /></View></View>;
   const two = cw >= TWO; // big screen: instructions on the left, Your work + Private comments on the right — as Classroom does
   const work = isWork(item);
   const ws = workState(item);
@@ -304,12 +304,8 @@ export function ItemScreen({ id }) {
     ? <PrivateComments item={item} />
     : (!!item.comments && <View style={s.panel}><View style={s.panelHead}><MIcon n="account-outline" s={24} c={T.ink} /><Text style={s.panelTitle}>Private comments</Text></View><Text style={s.body}>{item.comments}</Text></View>);
 
-  const teacher = teacherFor(e, item);
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }} onLayout={(ev) => setCw(ev.nativeEvent.layout.width)}>
-      {e.wide
-        ? <AppBar brand onMenu={e.openDrawer} onBrand={() => e.goTab('classes')} onCrumb={() => e.openClass(item.course || 'Other')} crumb={niceCourse(item.course)} crumbSub={teacher} />
-        : <AppBar onBack={pop} title={niceCourse(item.course)} subtitle={teacher} />}
       {/* the keyboard pushes the page up instead of covering the comment box */}
       <ScrollView contentContainerStyle={s.page} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
         <View style={[s.wrap, two && s.wrapTwo]}>

@@ -1,17 +1,19 @@
 import React, { Component, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { AppState, Linking, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Updates from 'expo-updates';
 import { AppCtx } from './src/ctx';
-import { SIDEBAR, T, WIDE, classTone, shadow } from './src/theme';
+import { BAR_BREAK, RAIL, SIDEBAR, T, WIDE, setClassMeta } from './src/theme';
 import { useEngine } from './src/engine';
 import { useAppFonts } from './src/fonts';
 import { load, save } from './src/lib';
-import { Avatar, MIcon, MoreMenu, Text, isOpen, niceCourse, teacherOf, workState } from './src/ui';
+import { AppBar, Avatar, IconBtn, MoreMenu, Text, isOpen, niceCourse, workState } from './src/ui';
+import { classLine } from './src/classes';
+import { ModalDrawer, Sidebar, useModalDrawer } from './src/nav';
 import { ClassesScreen, ConnChip } from './src/screens/Home';
 import { ClassScreen } from './src/screens/Class';
-import { CalendarScreen, FindScreen, TodoScreen, useClasses } from './src/screens/Lists';
+import { CalendarScreen, FindScreen, TodoScreen } from './src/screens/Lists';
 import { AttachPicker, ItemScreen, Preview } from './src/screens/Item';
 import { ConnectionScreen, MoreScreen, Notice, UpdateStrip, WhatsNew } from './src/screens/More';
 import { AddModal } from './src/extra';
@@ -46,68 +48,6 @@ function useOta() {
   return useMemo(() => ({ ...st, check: () => check(true), apply: () => Updates.reloadAsync().catch(() => {}) }), [st, check]);
 }
 
-/* ---------- the menu (Classroom's navigation drawer) ---------- */
-function NavItem({ mi, miOn, label, on, badge, onPress }) {
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => [s.nav, on && s.navOn, pressed && !on && { backgroundColor: T.tonal }]}>
-      <MIcon n={on ? miOn : mi} s={24} c={on ? T.brandOn : T.sub} />
-      <Text style={[s.navTxt, on && { color: T.brandOn, fontWeight: '500' }]} numberOfLines={1}>{label}</Text>
-      {badge > 0 && <Text style={[s.navBadge, on && { color: T.brandOn }]}>{badge > 99 ? '99+' : badge}</Text>}
-    </Pressable>
-  );
-}
-
-function DrawerPanel({ active, openClassName, missing, onGo, onClass, onFind }) {
-  const e = useContext(AppCtx);
-  const classes = useClasses(e.items);
-  const teachers = useMemo(() => Object.fromEntries(classes.map((c) => [c.name, teacherOf(e.items.filter((i) => (i.course || 'Other') === c.name))])), [classes, e.items]);
-  return (
-    <View style={s.drawer}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 12, paddingHorizontal: 12 }}>
-        <NavItem mi="home-outline" miOn="home" label="Home" on={active === 'classes'} onPress={() => onGo('classes')} />
-        <NavItem mi="calendar-blank-outline" miOn="calendar-blank" label="Calendar" on={active === 'calendar'} onPress={() => onGo('calendar')} />
-        <View style={s.rule} />
-        <Text style={s.drawerHead}>Enrolled</Text>
-        {classes.map((c) => {
-          const on = openClassName === c.name, tone = classTone(c.name);
-          return (
-            <Pressable key={c.name} onPress={() => onClass(c.name)} style={({ pressed }) => [s.nav, on && s.navOn, pressed && !on && { backgroundColor: T.tonal }]}>
-              <Avatar name={niceCourse(c.name)} size={32} color={tone.solid} />
-              <View style={{ flex: 1 }}>
-                <Text style={[s.navTxt, { fontSize: 14 }, on && { color: T.brandOn, fontWeight: '500' }]} numberOfLines={1}>{niceCourse(c.name)}</Text>
-                {!!teachers[c.name] && <Text style={s.navSub} numberOfLines={1}>{teachers[c.name]}</Text>}
-              </View>
-              {c.late > 0 && <View style={s.dot} />}
-            </Pressable>
-          );
-        })}
-        <View style={s.rule} />
-        <NavItem mi="clipboard-check-outline" miOn="clipboard-check" label="To-do" on={active === 'todo'} badge={missing} onPress={() => onGo('todo')} />
-        <NavItem mi="magnify" miOn="magnify" label="Search" on={active === 'find'} onPress={onFind} />
-        <NavItem mi="cog-outline" miOn="cog" label="Settings" on={active === 'more'} onPress={() => onGo('more')} />
-      </ScrollView>
-      <View style={s.drawerFoot}><ConnChip /></View>
-    </View>
-  );
-}
-
-/** On a phone the menu slides over the page from the left; the page behind is dimmed. */
-function PhoneDrawer({ open, onClose, width, children }) {
-  const x = useRef(new Animated.Value(open ? 0 : -width)).current;
-  const [shown, setShown] = useState(open);
-  useEffect(() => {
-    if (open) { setShown(true); Animated.timing(x, { toValue: 0, duration: 220, useNativeDriver: true }).start(); }
-    else Animated.timing(x, { toValue: -width, duration: 180, useNativeDriver: true }).start(() => setShown(false));
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!shown) return null;
-  return (
-    <View style={StyleSheet.absoluteFill}>
-      <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: '#00000052' }]} onPress={onClose} />
-      <Animated.View style={[s.phoneDrawer, { width, transform: [{ translateX: x }] }, shadow]}>{children}</Animated.View>
-    </View>
-  );
-}
-
 function Main() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -118,30 +58,34 @@ function Main() {
   const [preview, setPreview] = useState(null);
   const [adding, setAdding] = useState(false);
   const [incoming, setIncoming] = useState(null);
-  const [drawer, setDrawer] = useState(false);    // phone: the menu is sliding over the page
-  const [menuOpen, setMenuOpen] = useState(false); // big screen: closed to begin with, like Classroom; the choice is remembered
-  const menuLoaded = useRef(false);
-  useEffect(() => { load('menuOpen', false).then((v) => { setMenuOpen(!!v); menuLoaded.current = true; }); }, []);
-  useEffect(() => { if (menuLoaded.current) save('menuOpen', menuOpen); }, [menuOpen]);
-  const [menu, setMenu] = useState(null);         // a row's three-dot menu
+  const [sideOpen, setSideOpen] = useState(true);         // big screen: the sidebar is open (300 wide) or shrunk to a rail of icons (76); remembered
+  const [enrolledOpen, setEnrolledOpen] = useState(true); // the "Enrolled" list in the sidebar is unfolded; remembered
+  const restored = useRef(false);
+  useEffect(() => { Promise.all([load('sideOpen', true), load('enrolledOpen', true)]).then(([a, b]) => { setSideOpen(a !== false); setEnrolledOpen(b !== false); restored.current = true; }); }, []);
+  useEffect(() => { if (restored.current) { save('sideOpen', sideOpen); save('enrolledOpen', enrolledOpen); } }, [sideOpen, enrolledOpen]);
+  const popW = Math.min(304, width - 56);
+  const dr = useModalDrawer(popW, !wide);              // below 1040 px the menu is a pop-over: slides over a dimmed page, drag it shut, swipe in from the left edge
+  const drRef = useRef(dr); drRef.current = dr;
+  useEffect(() => { if (wide) drRef.current.close(); }, [wide]); // turned to landscape with the pop-over open: it gives way to the sidebar
+  const [menu, setMenu] = useState(null);                // a row's three-dot menu
 
   const openItem = useCallback((id) => setStack((x) => [...x.filter((p) => !(p.t === 'item' && p.id === id)), { t: 'item', id }]), []);
   const engine = useEngine({ onOpenItem: (id) => setStack([{ t: 'item', id }]) }); // tapping a notification opens that post
   const eng = useRef(engine); eng.current = engine;
   const ota = useOta();
-  const goTab = useCallback((k, seg) => { setStack([]); setTab(k); setDrawer(false); if (seg) setTodoSeg(seg); }, []);
+  const goTab = useCallback((k, seg) => { setStack([]); setTab(k); drRef.current.close(); if (seg) setTodoSeg(seg); }, []);
   const pop = useCallback(() => setStack((x) => x.slice(0, -1)), []);
 
   const ctx = useMemo(() => ({
-    ...engine, ota, wide, tab, todoSeg, setTodoSeg, goTab, pop, openItem,
-    openClass: (name, tab) => { setDrawer(false); setStack((x) => [...x.filter((p) => p.t !== 'class'), { t: 'class', name, tab }]); },
+    ...engine, ota, wide, sideW: wide ? (sideOpen ? SIDEBAR : RAIL) : 0, tab, todoSeg, setTodoSeg, goTab, pop, openItem,
+    openClass: (name, tab) => { drRef.current.close(); setStack([{ t: 'class', name, tab }]); }, // like a link in Classroom: the class page replaces whatever was open
     openConnection: () => setStack((x) => (x.some((p) => p.t === 'conn') ? x : [...x, { t: 'conn' }])),
-    openFind: () => { setDrawer(false); setStack((x) => (x.some((p) => p.t === 'find') ? x : [...x, { t: 'find' }])); },
+    openFind: () => { drRef.current.close(); setStack([{ t: 'find' }]); },
     openPreview: (file, list) => setPreview({ file, list: list && list.length ? list : [file] }),
     openAdd: () => setAdding(true),
-    openDrawer: () => (wide ? setMenuOpen((o) => !o) : setDrawer(true)),
+    openDrawer: () => (wide ? setSideOpen((o) => !o) : drRef.current.open()),
     openMenu: (items) => setMenu(items),
-  }), [engine, ota, wide, tab, todoSeg, goTab, pop, openItem]);
+  }), [engine, ota, wide, sideOpen, tab, todoSeg, goTab, pop, openItem]);
 
   // A file shared into the app from another app (your notes app, Files…): ask which assignment it is for.
   // (A Homework zip from the older Messages route still opens too, quietly.)
@@ -162,6 +106,7 @@ function Main() {
 
   const top = stack[stack.length - 1];
   const missing = useMemo(() => engine.items.filter((i) => isOpen(i) && workState(i) === 'late').length, [engine.items]);
+  setClassMeta(engine.remote && engine.remote.classes); // Classroom's own class order, sections and badge colours — set before anything below draws
   if (!engine.ready) return <View style={{ flex: 1, backgroundColor: T.bg }} />;
 
   const screen = top && top.t === 'class' ? <ClassScreen key={top.name + (top.tab || '')} name={top.name} tab={top.tab} />
@@ -170,22 +115,44 @@ function Main() {
         : top && top.t === 'find' ? <FindScreen />
           : tab === 'todo' ? <TodoScreen /> : tab === 'calendar' ? <CalendarScreen /> : tab === 'more' ? <MoreScreen /> : <ClassesScreen />;
 
-  const active = top ? (top.t === 'class' ? 'class' : top.t === 'find' ? 'find' : '') : tab;
-  const panel = (
-    <DrawerPanel active={active} openClassName={top && top.t === 'class' ? top.name : ''} missing={missing}
-      onGo={goTab} onClass={(n) => ctx.openClass(n)} onFind={() => ctx.openFind()} />
+  // The class you are in (a class page, or an assignment of it) stays marked in the menu and gives the top bar its crumb.
+  const curClass = top && top.t === 'class' ? top.name : top && top.t === 'item' ? ((engine.items.find((i) => i.id === top.id) || {}).course || 'Other') : '';
+  const active = top ? (curClass ? 'class:' + curClass : top.t === 'find' ? 'find' : '') : tab;
+  const menuProps = { active, missing, enrolledOpen, onToggleEnrolled: () => setEnrolledOpen((o) => !o), onGo: goTab, onClass: (n) => ctx.openClass(n), onFind: () => ctx.openFind() };
+
+  // One top bar for the whole app, above the sidebar and the page — as in Classroom. Big/medium screens: ☰, the logo and a
+  // "Classroom › class" breadcrumb; phones: a back arrow with the class name and its section.
+  const goHome = () => goTab('classes');
+  const phone = width < BAR_BREAK;
+  const rightSide = (
+    <View style={s.barRight}>
+      <ConnChip compact={!wide} />
+      {(!phone || (!top && tab === 'classes')) && <IconBtn mi="plus" onPress={ctx.openAdd} color={T.sub} />}
+      {!phone && <Pressable onPress={() => goTab('more')} hitSlop={6} accessibilityRole="button" accessibilityLabel="Settings"><Avatar name={engine.cfg.name || 'S'} size={32} /></Pressable>}
+    </View>
   );
+  const line = curClass ? classLine(engine.remote, engine.items, curClass) : '';
+  let bar;
+  if (curClass) {
+    bar = width >= BAR_BREAK
+      ? { brand: true, onMenu: ctx.openDrawer, onBrand: goHome, crumb: niceCourse(curClass), crumbSub: line, onCrumb: top.t === 'item' ? () => ctx.openClass(curClass) : undefined, right: rightSide }
+      : { onBack: pop, title: niceCourse(curClass), subtitle: line };
+  } else if (top && (top.t === 'find' || top.t === 'conn')) {
+    const name = top.t === 'find' ? 'Search' : 'Connection';
+    bar = width >= BAR_BREAK ? { brand: true, onMenu: ctx.openDrawer, onBrand: goHome, crumb: name, right: rightSide } : { onBack: pop, title: name };
+  } else bar = { brand: true, compactBrand: phone, onMenu: ctx.openDrawer, onBrand: tab === 'classes' ? undefined : goHome, crumb: tab === 'todo' ? 'To-do' : tab === 'calendar' ? 'Calendar' : tab === 'more' ? 'Settings' : '', right: rightSide };
 
   return (
     <AppCtx.Provider value={ctx}>
-      <View style={{ flex: 1, backgroundColor: T.bg, paddingTop: insets.top }}>
+      <View style={{ flex: 1, backgroundColor: T.bg, paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right }}>
         <UpdateStrip />
-        <View style={{ flex: 1, flexDirection: 'row' }}>
-          {wide && menuOpen && <View style={{ width: SIDEBAR }}>{panel}</View>}
-          <View style={{ flex: 1 }}>{screen}</View>
+        <AppBar {...bar} />
+        <View style={s.body} {...(wide ? null : dr.edgeHandlers)}>
+          {wide && <Sidebar open={sideOpen} onExpand={() => setSideOpen(true)} {...menuProps} />}
+          <View style={[s.content, wide && s.contentWide]}>{screen}</View>
         </View>
         <Notice text={engine.notice} bottom={26 + insets.bottom} />
-        {!wide && <PhoneDrawer open={drawer} onClose={() => setDrawer(false)} width={Math.min(320, width - 56)}>{panel}</PhoneDrawer>}
+        {!wide && <ModalDrawer drawer={dr} width={popW} {...menuProps} />}
         {engine.fresh.length > 0 && (
           <WhatsNew fresh={engine.fresh} onClose={() => engine.setFresh([])}
             onOpen={(it) => { engine.setFresh([]); setTab('classes'); setStack([{ t: 'class', name: it.course || 'Other' }, { t: 'item', id: it.id }]); }} />
@@ -230,17 +197,10 @@ export default function App() {
 }
 
 const s = StyleSheet.create({
-  drawer: { flex: 1, backgroundColor: T.bg, borderRightWidth: 1, borderRightColor: T.line },
-  phoneDrawer: { position: 'absolute', top: 0, bottom: 0, left: 0, backgroundColor: T.bg, borderTopRightRadius: 16, borderBottomRightRadius: 16, overflow: 'hidden', paddingTop: 24 },
-  drawerFoot: { paddingVertical: 12, paddingHorizontal: 20, alignItems: 'flex-start' },
-  drawerHead: { fontSize: 14, fontWeight: '500', color: T.sub, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 6 },
-  rule: { height: 1, backgroundColor: T.line, marginVertical: 8, marginHorizontal: 4 },
-  nav: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, minHeight: 52, borderRadius: 28 },
-  navOn: { backgroundColor: T.brandSoft },
-  navTxt: { flex: 1, fontSize: 15, color: T.ink },
-  navSub: { fontSize: 12, color: T.sub, marginTop: 1 },
-  navBadge: { fontSize: 14, fontWeight: '500', color: T.sub },
-  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: T.red },
+  body: { flex: 1, flexDirection: 'row' },
+  content: { flex: 1, minWidth: 0 },
+  contentWide: { borderTopLeftRadius: 28, overflow: 'hidden' }, // beside the sidebar the page has a rounded corner, as in Classroom
+  barRight: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingRight: 8 },
   crash: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 30, backgroundColor: T.bg },
   crashTitle: { fontSize: 20, color: T.ink, textAlign: 'center' },
   crashTxt: { fontSize: 13, color: T.sub, textAlign: 'center', marginTop: 10 },

@@ -4,7 +4,7 @@ import React, { useContext, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { AppCtx } from '../ctx';
 import { T, classTone } from '../theme';
-import { AppBar, Avatar, Btn, Card, Header, MIcon, Line, SectionTitle, Text, WorkRow, agoLabel, niceCourse, useNow } from '../ui';
+import { Btn, Card, MIcon, Line, SectionTitle, Text, WorkRow, agoLabel, niceCourse, useNow } from '../ui';
 import { PROBES, fmtBytes, runProbe } from '../lib';
 import { connInfo } from '../conn';
 
@@ -40,7 +40,6 @@ export function MoreScreen() {
   };
   return (
     <View style={{ flex: 1, backgroundColor: T.bg }}>
-      <AppBar brand crumb="Settings" onMenu={e.openDrawer} right={<View style={{ paddingRight: 8 }}><Avatar name={cfg.name || 'S'} size={32} /></View>} />
       <ScrollView contentContainerStyle={s.page} keyboardShouldPersistTaps="handled">
         <View style={s.wrap}>
           <SectionTitle title="Connection" style={{ marginTop: 8 }} />
@@ -106,7 +105,7 @@ export function MoreScreen() {
 /* ---------- Connection ---------- */
 export function ConnectionScreen() {
   const e = useContext(AppCtx);
-  const { cfg, net, remote, pop, outbox, jobs } = e;
+  const { cfg, net, remote, outbox, jobs } = e;
   const now = useNow(5000);
   const c = connInfo(e, now);
   const [test, setTest] = useState(null);
@@ -125,7 +124,6 @@ export function ConnectionScreen() {
   const m = remote && remote.mirror;
   return (
     <View style={{ flex: 1, backgroundColor: T.bg }}>
-      <Header title="Connection" onBack={pop} />
       <ScrollView contentContainerStyle={s.page}>
         <View style={s.wrap}>
           <Card style={{ padding: 16, gap: 14 }}>

@@ -1,28 +1,12 @@
 // To-do (Assigned / Missing / Done, with an "All classes" filter, as in Google Classroom), a week Calendar, and Search.
 import React, { useContext, useMemo, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
 import { AppCtx } from '../ctx';
 import { T } from '../theme';
-import { AppBar, Chip, Dropdown, Empty, FileBadge, GroupHead, IconBtn, MIcon, PAST_BUCKETS, Tabs, Text, WorkRow, isDone, isNew, isOpen, isWork, kindOf, niceCourse, pastBucketOf, sameDay, startOfWeek, workState } from '../ui';
+import { Chip, Dropdown, Empty, FileBadge, GroupHead, IconBtn, MIcon, PAST_BUCKETS, Tabs, Text, WorkRow, isDone, isOpen, isWork, kindOf, niceCourse, pastBucketOf, sameDay, startOfWeek, workState } from '../ui';
 import { fmtBytes } from '../lib';
 
 const DAY = 86400000;
-
-/** The classes, with what is open in each (for the menu). */
-export function useClasses(items) {
-  return useMemo(() => {
-    const m = new Map();
-    items.forEach((i) => {
-      const k = i.course || 'Other';
-      const c = m.get(k) || { name: k, todo: 0, count: 0, fresh: 0, late: 0 };
-      c.count++;
-      if (isNew(i)) c.fresh++;
-      if (isOpen(i)) { c.todo++; if (workState(i) === 'late') c.late++; }
-      m.set(k, c);
-    });
-    return [...m.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [items]);
-}
 
 /** Classroom's groups for work that is still to do. */
 const ASSIGNED = ['No due date', 'This week', 'Next week', 'Later'];
@@ -36,6 +20,7 @@ function assignedBucket(i) {
 export function TodoScreen() {
   const e = useContext(AppCtx);
   const { items, openItem, refresh, refreshing, todoSeg, setTodoSeg } = e;
+  const { width } = useWindowDimensions();
   const [cls, setCls] = useState('');
   const [fold, setFold] = useState({});
   const work = useMemo(() => items.filter(isWork), [items]);
@@ -56,8 +41,7 @@ export function TodoScreen() {
   }, [work, todoSeg, cls]);
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
-      <AppBar brand crumb="To-do" onMenu={e.openDrawer} right={<IconBtn mi="plus" onPress={e.openAdd} color={T.sub} />} />
-      <Tabs options={[['todo', 'Assigned'], ['missing', 'Missing'], ['done', 'Done']]} value={todoSeg} onChange={setTodoSeg} />
+      <Tabs fill={false} center={width - (e.sideW || 0) < 640} options={[['todo', 'Assigned'], ['missing', 'Missing'], ['done', 'Done']]} value={todoSeg} onChange={setTodoSeg} />
       <ScrollView contentContainerStyle={s.page} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={T.faint} />}>
         <View style={s.wrap}>
           <Dropdown value={cls} onChange={setCls} style={{ width: '100%', maxWidth: 340 }} options={[['', 'All classes'], ...names.map((n) => [n, niceCourse(n)])]} />
@@ -99,7 +83,6 @@ export function CalendarScreen() {
   const range = `${label(start, { month: 'short', day: 'numeric' })} – ${label(start + 6 * DAY, { month: 'short', day: 'numeric' })}`;
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
-      <AppBar brand crumb="Calendar" onMenu={e.openDrawer} />
       <View style={s.weekBar}>
         <IconBtn mi="chevron-left" onPress={() => setWeek(week - 1)} color={T.sub} />
         <Pressable onPress={() => setWeek(0)} style={({ pressed }) => [s.weekMid, pressed && { opacity: 0.5 }]}>
@@ -132,7 +115,7 @@ export function CalendarScreen() {
 /* ---------- Search ---------- */
 const KINDS = ['All', 'Classwork', 'Materials', 'Announcements', 'Files'];
 export function FindScreen() {
-  const { items, openItem, openPreview, pop } = useContext(AppCtx);
+  const { items, openItem, openPreview } = useContext(AppCtx);
   const [q, setQ] = useState('');
   const [kind, setKind] = useState('All');
   const toks = q.toLowerCase().split(/\s+/).filter(Boolean);
@@ -143,7 +126,6 @@ export function FindScreen() {
   const fileRows = useMemo(() => (kind !== 'Files' ? [] : list.flatMap((i) => (i.files || []).filter((f) => !toks.length || toks.every((t) => (f.name + ' ' + i.title + ' ' + i.course).toLowerCase().includes(t))).map((f) => ({ f, i })))), [list, kind]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
-      <AppBar onBack={pop} title="Search" />
       <View style={s.searchWrap}>
         <MIcon n="magnify" s={22} c={T.sub} />
         <TextInput value={q} onChangeText={setQ} autoFocus placeholder="Titles, instructions, file names, your notes" placeholderTextColor={T.faint} style={s.search} autoCorrect={false} autoCapitalize="none" returnKeyType="search" />

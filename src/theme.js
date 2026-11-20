@@ -2,6 +2,7 @@
 // page background #F8FAFD, white panels, post cards #F0F4F9, "Your work" panels #E9EEF6, text #1F1F1F / #444746 / #747775,
 // links and primary buttons #0B57D0, "missing" red #B3261E, "done" green #146C2E, hairlines #DADCE0, Google Sans type.
 import { Platform, StyleSheet } from 'react-native';
+import { niceCourse } from './util';
 
 export const T = {
   bg: '#F8FAFD', card: '#FFFFFF', tonal: '#F0F4F9', tonal2: '#E9EEF6',
@@ -40,7 +41,27 @@ const TONES = [
   { bg: '#E3E3E3', fg: '#1B1B1C', solid: '#5F6368' }, // grey
 ];
 const hash = (name = '') => { let h = 0; for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0; return h; };
-export const classTone = (name) => TONES[hash(name) % TONES.length];
+
+// What Classroom itself says about the classes — its own order, each section line and the two colours of its round badge — read off
+// its side menu by the PC and carried here in the state record. Set once per render by the app shell; until it arrives (or for a
+// class it does not list) the colour comes from a hash of the name and the order is alphabetical.
+let CLS = { byName: new Map(), byId: new Map(), list: [] };
+export function setClassMeta(list) {
+  const byName = new Map(), byId = new Map(), out = [];
+  (Array.isArray(list) ? list : []).forEach((c, k) => {
+    if (!c || !c.name) return;
+    const m = { id: c.id || '', name: niceCourse(c.name), sec: c.sec || '', bg: c.bg || '', fg: c.fg || '', k };
+    byName.set(m.name, m); if (m.id) byId.set(m.id, m); out.push(m);
+  });
+  CLS = { byName, byId, list: out };
+}
+export const classMeta = (name) => CLS.byName.get(niceCourse(name)) || null;
+export const classMetaList = () => CLS.list;
+export const classTone = (name) => {
+  const m = classMeta(name);
+  if (m && m.bg && m.fg) return { bg: m.bg, fg: m.fg, solid: m.fg };
+  return TONES[hash(name) % TONES.length];
+};
 export const classPair = (name) => { const t = classTone(name); return [t.solid, t.fg]; }; // older call sites
 export const courseColor = (name) => classTone(name).solid;
 
@@ -49,5 +70,9 @@ const AVATARS = ['#E8710A', '#455A64', '#1E8E3E', '#A142F4', '#12B5CB', '#D93025
 export const avatarColor = (name) => AVATARS[hash(String(name || '')) % AVATARS.length];
 
 export const hair = StyleSheet.hairlineWidth;
-export const WIDE = 900;    // from this width up: the menu stays open at the left (iPad landscape, big iPad portrait)
-export const SIDEBAR = 296; // width of that menu
+// Classroom's own breakpoints (measured on the real site): from ~1040 px up the menu is a permanent sidebar (300 wide, open to begin
+// with, shrinking to a 76 wide icon rail when you press ☰); below that it is a pop-over (304 wide) over a dimmed page.
+export const WIDE = 1040;   // iPad in landscape and up
+export const SIDEBAR = 300; // the open sidebar
+export const RAIL = 76;     // the sidebar shrunk to icons
+export const BAR_BREAK = 700; // from here up the top bar carries the Classroom logo and the "Classroom › class" breadcrumb

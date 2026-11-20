@@ -83,18 +83,21 @@ export const GroupLabel = GroupHead; // the older name
  * Classroom's top bar: menu (or back arrow), then either the Classroom wordmark (with a "› page" after it) or a title with a
  * smaller line under it (a class's name and section).
  */
-export function AppBar({ title, subtitle, onMenu, onBack, brand, crumb, crumbSub, onBrand, onCrumb, right, style }) {
+export function AppBar({ title, subtitle, onMenu, onBack, brand, compactBrand, crumb, crumbSub, onBrand, onCrumb, right, style }) {
+  const bare = compactBrand && !!crumb; // a phone shows just the page's name after the menu button (the logo and "Classroom ›" are for Home and wider screens)
   return (
     <View style={[st.appbar, style]}>
       {onBack ? <IconBtn mi="arrow-left" onPress={onBack} color={T.ink} /> : onMenu ? <IconBtn mi="menu" onPress={onMenu} color={T.ink} /> : <View style={{ width: 12 }} />}
       {brand ? (
         <View style={st.brandRow}>
-          <Pressable onPress={onBrand} disabled={!onBrand} style={st.brandHit}>
-            <LinearGradient colors={['#3D8BFF', '#173FB8']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={st.mark}><Icon n="checkmark-done" s={17} c="#fff" /></LinearGradient>
-            <Text style={st.brandTxt}>Classroom</Text>
-          </Pressable>
+          {!bare && (
+            <Pressable onPress={onBrand} disabled={!onBrand} style={st.brandHit}>
+              <LinearGradient colors={['#3D8BFF', '#173FB8']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={st.mark}><Icon n="checkmark-done" s={17} c="#fff" /></LinearGradient>
+              <Text style={st.brandTxt}>Classroom</Text>
+            </Pressable>
+          )}
           {!!crumb && (<>
-            <MIcon n="chevron-right" s={22} c={T.sub} />
+            {!bare && <MIcon n="chevron-right" s={22} c={T.sub} />}
             <Pressable onPress={onCrumb} disabled={!onCrumb} style={{ flexShrink: 1 }}>
               <Text style={[st.crumbTxt, !!crumbSub && st.crumbTxtSm]} numberOfLines={1}>{crumb}</Text>
               {!!crumbSub && <Text style={st.barSub} numberOfLines={1}>{crumbSub}</Text>}
@@ -125,9 +128,9 @@ export const LargeTitle = ({ title, subtitle, right }) => (
 );
 
 /** Classroom's tabs: text, the current one in blue with a thick line under it, a hairline along the bottom. */
-export function Tabs({ options, value, onChange, style, fill = true }) {
+export function Tabs({ options, value, onChange, style, fill = true, center }) {
   return (
-    <View style={[st.tabs, style]}>
+    <View style={[st.tabs, center && { justifyContent: 'center' }, style]}>
       {options.map((o) => {
         const [key, label, count] = Array.isArray(o) ? o : [o, o];
         const on = value === key;
@@ -254,6 +257,8 @@ export function WorkRow({ item, onPress, onLongPress, onMore, showCourse, last, 
   const due = work && (item.dueAt || item.due) ? shortDue(item) : '';
   const posted = postedDetail(item);
   const course = niceCourseLabel(item.course);
+  // Classroom prints a due time in green while it is close (today or tomorrow), red once it is missing, grey otherwise.
+  const soon = work && !done && s !== 'late' && !!item.dueAt && item.dueAt > Date.now() && item.dueAt - Date.now() < 36 * 3600 * 1000;
   if (mode === 'classwork') {
     const right = work && due && !done ? 'Due ' + due : posted;
     return (
@@ -265,7 +270,7 @@ export function WorkRow({ item, onPress, onLongPress, onMore, showCourse, last, 
             {!!note && <Text style={[st.rowSub, { color: T.red }]} numberOfLines={1}>{note}</Text>}
           </View>
           <View style={{ alignItems: 'flex-end', maxWidth: 150 }}>
-            <Text style={[st.rowRight, s === 'late' && { color: T.red }]} numberOfLines={2}>{right}</Text>
+            <Text style={[st.rowRight, s === 'late' && { color: T.red }, soon && { color: T.green, fontWeight: '500' }]} numberOfLines={2}>{right}</Text>
             {work && s !== 'open' ? <StatePill item={item} plain /> : null}
           </View>
           {onMore ? <IconBtn mi="dots-vertical" onPress={onMore} size={22} style={{ marginRight: -8 }} /> : null}
@@ -286,7 +291,7 @@ export function WorkRow({ item, onPress, onLongPress, onMore, showCourse, last, 
         <View style={{ alignItems: 'flex-end', maxWidth: 130 }}>
           <View style={st.rowTop}>
             {item.starred && <MIcon n="pin" s={14} c={T.amberFill} />}
-            {!done && due ? <Text style={[st.rowRight, s === 'late' && { color: T.red }]} numberOfLines={2}>{due}</Text> : null}
+            {!done && due ? <Text style={[st.rowRight, s === 'late' && { color: T.red }, soon && { color: T.green, fontWeight: '500' }]} numberOfLines={2}>{due}</Text> : null}
           </View>
           {work && (done || s === 'late') ? <StatePill item={item} plain /> : null}
           {!!item.grade && s !== 'graded' ? <Text style={[st.stateTxt, { color: T.green }]} numberOfLines={1}>{item.grade}</Text> : null}
@@ -336,14 +341,14 @@ export const st = StyleSheet.create({
   mark: { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   brandTxt: { fontSize: 22, fontWeight: '400', color: T.sub },
   crumbTxt: { flexShrink: 1, fontSize: 22, fontWeight: '400', color: T.sub },
-  barTitle: { fontSize: 14, fontWeight: '500', color: T.ink },
-  barSub: { fontSize: 12, color: T.sub, marginTop: 1 },
+  barTitle: { fontSize: 16, fontWeight: '500', color: T.ink, lineHeight: 20 },
+  barSub: { fontSize: 12, color: T.sub, marginTop: 1, lineHeight: 16 },
   large: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 24, paddingTop: 16, paddingBottom: 8, gap: 10 },
   largeTitle: { fontSize: 28, fontWeight: '400', color: T.ink },
   largeSub: { fontSize: 14, color: T.sub, marginTop: 2 },
   tabs: { flexDirection: 'row', backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: T.line },
   tab: { flexGrow: 1, flexBasis: 0, maxWidth: 220, minWidth: 72, height: 48, alignItems: 'center', justifyContent: 'center' },
-  tabAuto: { flexGrow: 0, flexBasis: 'auto', minWidth: 120, paddingHorizontal: 16 },
+  tabAuto: { flexGrow: 0, flexBasis: 'auto', minWidth: 72, paddingHorizontal: 24 },
   tabTxt: { fontSize: 14, fontWeight: '500', color: T.sub },
   tabBar: { position: 'absolute', left: 8, right: 8, bottom: 0, height: 3, borderTopLeftRadius: 3, borderTopRightRadius: 3, backgroundColor: T.brand },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, height: 32, borderRadius: 8, borderWidth: 1, borderColor: '#747775', backgroundColor: '#fff', maxWidth: 240 },
