@@ -9,10 +9,10 @@ import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppCtx } from '../ctx';
 import { T } from '../theme';
-import { Avatar, Btn, FileBadge, Header, IconBtn, MIcon, Progress, RowIcon, Text, WorkRow, cleanBody, hasUpdate, isOpen, isWork, niceName, parseThread, postedDetail, realName, shortDue, useLayoutWidth, whenLabel, workState } from '../ui';
+import { Avatar, Btn, FileBadge, Header, IconBtn, MIcon, Progress, RowIcon, Text, WorkRow, cleanBody, hasUpdate, isOpen, isWork, niceName, parseQuestion, parseThread, postedDetail, realName, shortDue, useLayoutWidth, useNow, whenLabel, workState } from '../ui';
 import { fmtBytes } from '../lib';
 import { fileExists, openFile, resolveLocal } from '../files';
-import { turninView } from '../conn';
+import { connInfo, turninView } from '../conn';
 import { NotesCard, RichText, StepsCard } from '../extra';
 
 const pct = (p) => (p && p.total ? Math.round(((p.done || 0) / p.total) * 100) : 0);
@@ -170,6 +170,13 @@ export function ItemScreen({ id }) {
   const { width } = useWindowDimensions();
   const [cw, onPageLayout] = useLayoutWidth(width - (e.sideW || 0)); // corrected by onLayout once the page is drawn
   const item = items.find((i) => i.id === id);
+  const now = useNow(10000);
+  const [draft, setDraft] = useState(() => (item && item.answer) || ''); // the answer being typed to a question (a Do Now)
+  useEffect(() => {
+    if (!item || draft === (item.answer || '')) return undefined;
+    const t = setTimeout(() => e.updateItem(id, { answer: draft }), 400);
+    return () => clearTimeout(t);
+  }, [draft]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!item) return <View style={{ flex: 1, backgroundColor: '#fff', justifyContent: 'center' }}><Text style={[s.none, { textAlign: 'center' }]}>This post is not here any more.</Text><View style={{ alignItems: 'center', marginTop: 16 }}><Btn kind="outline" label="Go back" onPress={pop} /></View></View>;
   const two = cw >= TWO; // big screen: instructions on the left, Your work + Private comments on the right — as Classroom does
   const work = isWork(item);
@@ -184,6 +191,12 @@ export function ItemScreen({ id }) {
   const queued = tv.state === 'queued';
   const canClassroom = work && !item.mine && !!item.url;
   const sending = mine.some((f) => f.pending);
+  const pcInfo = connInfo(e, now); // is the PC that types the answer into Classroom on?
+  const q = parseQuestion(item.body); // a question with a typed answer (a Do Now)?
+  const isQ = canClassroom && q.is;
+  const dueLocked = isQ && q.closed && !!item.dueAt && item.dueAt < now && !turnedIn && !graded; // late answers are refused and the due time has passed
+  const editable = isQ && !turnedIn && !graded && !queued && tv.state !== 'done' && !dueLocked;
+  const minsLeft = item.dueAt ? Math.ceil((item.dueAt - now) / 60000) : 0;
   const cb = cleanBody(item.body); // the instructions without Classroom's own header lines, and the points if it had any
   const stateWord = queued ? 'Turning in…' : turnedIn ? 'Turned in' : excused ? 'Excused' : graded ? 'Graded' : ws === 'late' ? 'Missing' : ws === 'done' ? 'Done' : 'Assigned';
   const stateColor = ws === 'late' ? T.red : turnedIn || graded ? T.green : T.ink;
@@ -242,7 +255,7 @@ export function ItemScreen({ id }) {
 
       {/* Graded work can still take a new file (Classroom lets you resubmit); work that is turned in and waiting cannot. */}
       {mine.length > 0 && !turnedIn && !queued && <View style={s.divider} />}
-      {!turnedIn && !queued && <Btn kind="outline" mi="plus" label="Add or create" onPress={addMenu} />}
+      {!turnedIn && !queued && !isQ && <Btn kind="outline" mi="plus" label="Add or create" onPress={addMenu} />}
 
       {canClassroom && (<>
         {queued ? (<>
@@ -259,7 +272,9 @@ export function ItemScreen({ id }) {
         ) : graded ? (<>
           {tv.failed && failedBox('Your file was not sent')}
           {/* Your teacher already graded it, so a normal turn-in has nothing to do. Handing work in again is a choice: say so, and ask first. */}
-          {mine.length === 0 ? (
+          {isQ ? (
+            <Text style={s.hint}>{excused ? 'Your teacher excused this one.' : 'Your teacher already graded this one.'}</Text>
+          ) : mine.length === 0 ? (
             <Text style={s.hint}>{excused ? 'Your teacher excused this one, so there is nothing you have to hand in. To hand in work for it anyway, add the file above.' : 'Your teacher already graded this one. To hand in new work for it anyway, add the file above.'}</Text>
           ) : askResubmit ? (
             <View style={{ gap: 10 }}>
@@ -275,7 +290,13 @@ export function ItemScreen({ id }) {
           </>)}
         </>) : (<>
           {tv.failed && failedBox('It wasn’t turned in')}
-          {mine.length > 0 ? (
+          {isQ ? (dueLocked ? (
+            <Text style={s.hint}>Classroom closed this one when the due time passed.</Text>
+          ) : (<>
+            <Btn mi="send" label="Turn in" disabled={!draft.trim()} onPress={() => e.turnIn(item, { answer: draft })} />
+            <Text style={s.hint}>Your PC types the answer into Classroom and turns it in, usually within a few seconds. This works on school Wi-Fi too.</Text>
+            {pcInfo.pcKnown && !pcInfo.pcOnline && <Text style={[s.hint, { color: T.amber, fontWeight: '500' }]}>Your PC looks offline: the answer goes in once it is back. If this one closes soon, turn it in on Google Classroom yourself.</Text>}
+          </>)) : mine.length > 0 ? (
             <Btn label={sending ? 'Turn in when sent' : 'Turn in'} onPress={() => e.turnIn(item)} />
           ) : askEmpty ? (
             <View style={{ gap: 10 }}>
@@ -288,7 +309,7 @@ export function ItemScreen({ id }) {
           ) : (
             <Btn label="Mark as done" onPress={() => setAskEmpty(true)} />
           )}
-          <Text style={s.hint}>{mine.length ? `Your PC attaches your file${mine.length > 1 ? 's' : ''} and presses Turn in on Google Classroom for you. This works on school Wi-Fi too.` : 'Add your finished work above, then turn it in.'}</Text>
+          {!isQ && <Text style={s.hint}>{mine.length ? `Your PC attaches your file${mine.length > 1 ? 's' : ''} and presses Turn in on Google Classroom for you. This works on school Wi-Fi too.` : 'Add your finished work above, then turn it in.'}</Text>}
         </>)}
       </>)}
 
@@ -298,6 +319,23 @@ export function ItemScreen({ id }) {
           <Text style={s.tickTxt}>{item.submitted ? 'Ticked off on my list' : 'Tick off on my own list (doesn’t turn anything in)'}</Text>
         </Pressable>
       )}
+    </View>
+  );
+  const shownAnswer = (q.answer || item.answer || '').trim();
+  const answerCard = isQ && (
+    <View style={s.answerCard}>
+      <View style={s.answerHead}>
+        <MIcon n="text-box-edit-outline" s={22} c={T.sub} />
+        <Text style={s.answerTitle}>Your answer</Text>
+        {editable && minsLeft > 0 && minsLeft <= 60 && <Text style={[s.answerDue, minsLeft <= 3 && { color: T.red }]}>Due in {minsLeft} min</Text>}
+      </View>
+      {editable ? (
+        <TextInput value={draft} onChangeText={setDraft} multiline placeholder="Type your answer" placeholderTextColor={T.faint} style={s.answerInput}
+          autoFocus={minsLeft > 0 && minsLeft <= 120} textAlignVertical="top" />
+      ) : (
+        <Text style={[s.answerText, !shownAnswer && { color: T.faint }]} selectable>{shownAnswer || (dueLocked ? 'The due time passed before an answer was turned in.' : graded ? 'No answer was turned in.' : '')}</Text>
+      )}
+      {dueLocked && <Text style={s.answerHint}>This one closed when the due time passed: Classroom takes no more answers.</Text>}
     </View>
   );
   const comments = canClassroom
@@ -326,6 +364,7 @@ export function ItemScreen({ id }) {
 
             <View style={s.divider2} />
             {!!cb.text && <View style={s.instr}><RichText text={cb.text} /></View>}
+            {answerCard}
 
             {theirs.length > 0 && (
               <View style={[s.attachWrap, two && { marginRight: 0 }]}>
@@ -449,6 +488,13 @@ const s = StyleSheet.create({
   instr: { paddingTop: 16 },
   none: { fontSize: 14, color: T.sub },
   body: { fontSize: 14, lineHeight: 20, color: T.ink },
+  answerCard: { marginTop: 20, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: T.line, backgroundColor: '#fff', gap: 12 },
+  answerHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  answerTitle: { flex: 1, fontSize: 16, fontWeight: '500', color: T.ink },
+  answerDue: { fontSize: 13, fontWeight: '500', color: T.amber },
+  answerInput: { minHeight: 130, maxHeight: 380, borderRadius: 8, borderWidth: 1, borderColor: '#747775', backgroundColor: '#fff', paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, lineHeight: 22, color: T.ink, fontFamily: 'GoogleSans_400Regular', outlineStyle: 'none' },
+  answerText: { fontSize: 15, lineHeight: 22, color: T.ink },
+  answerHint: { fontSize: 12.5, color: T.sub },
   attachWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 20 },
   attach: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 8, paddingRight: 14, borderRadius: 8, borderWidth: 1, borderColor: T.line, backgroundColor: '#fff', width: '100%' },
   attachHalf: { width: '48.5%', flexGrow: 1, minWidth: 260 },

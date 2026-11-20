@@ -12,8 +12,15 @@ export const kindOf = (i) => (i.kind === 'announcement' ? 'Announcements' : i.ki
  * Where a piece of work stands, using what Google Classroom itself says (status, grade), the turn-in this app did,
  * and your own tick: 'turnedin' | 'graded' | 'done' (ticked off on your list only) | 'late' | 'open'.
  */
+// A question (a Do Now) has no "Your work" card: its status ("Graded", "Missing", …) is printed under "Your answer" in its page text.
+// Used while the PC has not re-read the post yet (its status field is still empty).
+const questionStatus = (body) => {
+  const L = String(body || '').split('\n').map((x) => x.trim());
+  const a = L.indexOf('Your answer');
+  return a < 0 ? '' : L.slice(a + 1, a + 5).find((x) => /^(Assigned|Missing|Turned in( late)?|Handed in|Done|Graded|Returned|Excused)$/i.test(x)) || '';
+};
 export function workState(i) {
-  const s = String(i.status || '').toLowerCase();
+  const s = String(i.status || questionStatus(i.body) || '').toLowerCase();
   if (/turned in|handed in/.test(s)) return 'turnedin'; // in the teacher's hands — also after a resubmit, while an older grade still shows
   if (/excused/.test(s)) return 'excused'; // your teacher let you off this one: nothing to hand in
   if (/graded|returned/.test(s) || (i.grade && !/missing/.test(s))) return 'graded';
@@ -125,7 +132,9 @@ export const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDa
  */
 export function cleanBody(body) {
   const L = String(body || '').split('\n');
-  const junk = (x) => /^(•|\||Due\b.*|No due date|Ungraded|\(?Edited.*)$/i.test(x);
+  const hasHeader = L.slice(0, 9).some((x) => x.trim() === '•' || x.trim() === '|'); // Classroom's header lines come with a bullet / a bar
+  // after a grade the header also reads "1", "/1", "1 point out of possible 1" — only taken off when that header is really there
+  const junk = (x) => /^(•|\||Due\b.*|No due date|Ungraded|\(?Edited.*)$/i.test(x) || (hasHeader && /^(\d+(\.\d+)?|\/\d+(\.\d+)?|\d+(\.\d+)? points? out of possible \d+(\.\d+)?)$/i.test(x));
   const pts = (x) => /^\d+(\.\d+)? points?$/i.test(x);
   let k = L.length > 1 && L[1].trim() === '•' ? 1 : 0; // a topic line is only recognisable by the bullet after it
   let points = '';
@@ -135,10 +144,38 @@ export function cleanBody(body) {
   }
   // Classroom's own buttons and field labels come along with a question's page text ("Your answer", "Turn in", …): not instructions.
   const ui = /^(Your answer|Assigned|Work cannot be turned in after the due date|Mark as done|Turn in|Turned in|Resubmit|Unsubmit)$/i;
-  const rest = L.slice(k);
+  let rest = L.slice(k);
+  // A question (a Do Now): everything from its "Your answer" label on belongs to the answer box and the Your-work card, not to the
+  // instructions (that part is read by parseQuestion).
+  const qi = rest.findIndex((x) => x.trim() === 'Your answer');
+  if (qi >= 0) rest = rest.slice(0, qi);
   while (rest.length && (!rest[rest.length - 1].trim() || ui.test(rest[rest.length - 1].trim()))) rest.pop();
   const text = rest.filter((x) => !/^(Your answer|Assigned|Work cannot be turned in after the due date)$/i.test(x.trim())).join('\n').trim();
   return { text, points };
+}
+
+/**
+ * Is this post a Classroom question with a typed answer (a Do Now)? Its page text has the label "Your answer" followed by the
+ * status, a hidden marker, the answer you gave (once handed in) and, when late work is refused, "Work cannot be turned in after
+ * the due date". Multiple-choice polls ("Classmates will see your answer…") are not typed answers.
+ * -> { is, poll, answer (what is already in), closed (late work refused) }
+ */
+export function parseQuestion(body) {
+  const L = String(body || '').split('\n');
+  const i = L.findIndex((x) => x.trim() === 'Your answer');
+  if (i < 0) return { is: false, poll: false, answer: '', closed: false };
+  const after = L.slice(i + 1);
+  const poll = after.some((x) => /^Classmates will see your answer/i.test(x.trim()));
+  const stop = /^(Work cannot be turned in after the due date|Turn in|Hand in|Unsubmit|Resubmit|Mark as done|Add comment)$/i;
+  const status = /^(Assigned|Missing|Turned in( late)?|Handed in|Done|Graded|Returned|Excused|Draft|Not answered|Not (turned|handed) in)$/i;
+  const out = [];
+  for (const x of after) {
+    const t = x.trim();
+    if (stop.test(t)) break;
+    if (!t || t === 'Estigfend' || status.test(t)) continue;
+    out.push(x.replace(/\s+$/, ''));
+  }
+  return { is: !poll, poll, answer: poll ? '' : out.join('\n').trim(), closed: after.some((x) => /cannot be turned in after the due date/i.test(x)) };
 }
 
 /** "CATHERINE LEONG (North High)" -> "Catherine Leong": a teacher's name the way you would write it. */

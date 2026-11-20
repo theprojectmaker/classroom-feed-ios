@@ -431,14 +431,16 @@ export function useEngine({ onOpenItem }) {
 
   /* ---------- turning in, marking done, scanning ---------- */
   /** Real Google Classroom turn-in. The PC does it (it has the signed-in browser) and reports back. `empty` = hand in with no file ("Mark as done"). */
-  const turnIn = useCallback((item, { empty = false, resubmit = false } = {}) => {
+  const turnIn = useCallback((item, { empty = false, resubmit = false, answer = '' } = {}) => {
     const cur = r.items.find((i) => i.id === item.id) || item;
     const files = (cur.files || []).filter((f) => f.origin === 'upload').map((f) => f.id);
+    // answer = the typed answer to a Classroom question (a Do Now): the PC types it into Classroom's answer box and hands it in
+    const text = String(answer || '').replace(/\r\n/g, '\n').trim().slice(0, 4000);
     if (cur.mine || !cur.url) { notify('This item can’t be turned in on Classroom.'); return; }
-    if (!files.length && !empty) { notify('Add your finished file first.'); return; }
-    updateItem(cur.id, { turnin: 'queued', turnin_note: 'Sending the request…', turnin_at: Date.now() });
+    if (!files.length && !empty && !text) { notify('Add your finished file first.'); return; }
+    updateItem(cur.id, { turnin: 'queued', turnin_note: 'Sending the request…', turnin_at: Date.now(), ...(text ? { answer: text } : {}) });
     // resubmit = "hand it in again although Classroom already shows it as graded" (only ever sent when the user chose that)
-    sendOp({ t: 'turnin', item: cur.id, files, empty: !files.length && !!empty, ...(resubmit ? { resubmit: true } : {}) });
+    sendOp({ t: 'turnin', item: cur.id, files: text ? [] : files, empty: !files.length && !!empty && !text, ...(text ? { answer: text } : {}), ...(resubmit ? { resubmit: true } : {}) });
     hot(6 * 60 * 1000);
   }, [sendOp, notify, updateItem]);
 
