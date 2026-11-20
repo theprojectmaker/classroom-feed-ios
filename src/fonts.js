@@ -15,11 +15,16 @@ import { GoogleSans_700Bold } from '@expo-google-fonts/google-sans/700Bold';
 const FILES = { GoogleSans_400Regular, GoogleSans_500Medium, GoogleSans_700Bold };
 let ready = false;
 
-/** Loads the fonts. Returns true once they are loaded OR have failed (the app then carries on with the system font). */
+/**
+ * Loads the fonts. Returns true once they are loaded, have failed, or 3 seconds have passed (the app then carries on with the
+ * system font and switches to Google Sans by itself when the fonts do arrive) — so a font can never leave the screen blank.
+ */
 export function useAppFonts() {
   const [ok, err] = useFonts(FILES);
+  const [late, setLate] = React.useState(false);
+  React.useEffect(() => { const t = setTimeout(() => setLate(true), 3000); return () => clearTimeout(t); }, []);
   if (ok) ready = true;
-  return !!(ok || err);
+  return !!(ok || err || late);
 }
 
 const familyFor = (w) => {
